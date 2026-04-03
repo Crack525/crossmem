@@ -140,8 +140,19 @@ Add to your tool's MCP config:
 }
 ```
 
-> **Note:** If `crossmem-server` isn't on PATH, use:
-> `"command": "uvx", "args": ["--from", "crossmem", "crossmem-server"]`
+**VS Code / GitHub Copilot** (`.vscode/mcp.json` in project root, or user `settings.json`):
+```json
+{
+  "servers": {
+    "crossmem": {
+      "command": "uvx",
+      "args": ["--from", "crossmem", "crossmem-server"]
+    }
+  }
+}
+```
+
+> **Note:** For Claude Code and Gemini CLI, if `crossmem-server` isn't on PATH, use the same `uvx` command shown in the Copilot config above.
 
 ### Tools
 
@@ -164,6 +175,7 @@ crossmem serve    # starts MCP server on stdio (same as crossmem-server)
 |------|-----------|
 | Claude Code | `~/.claude/projects/*/memory/*.md` |
 | Gemini CLI | `~/.gemini/GEMINI.md` |
+| VS Code / GitHub Copilot | Via MCP server (no direct ingestion — uses the shared index) |
 
 Ingestion is pluggable — PRs welcome for new tools.
 
