@@ -140,6 +140,46 @@ class TestGetSharedSections:
         assert len(results) == 0
 
 
+class TestDelete:
+    def test_delete_by_id(self, store: MemoryStore) -> None:
+        mid = store.add("to delete", "f.md", "alpha", "Config")
+        assert store.count() == 1
+        assert store.delete(mid) is True
+        assert store.count() == 0
+
+    def test_delete_nonexistent(self, store: MemoryStore) -> None:
+        assert store.delete(9999) is False
+
+    def test_delete_removes_from_fts(self, store: MemoryStore) -> None:
+        mid = store.add("unique searchable content", "f.md", "alpha")
+        assert len(store.search("unique")) == 1
+        store.delete(mid)
+        assert len(store.search("unique")) == 0
+
+    def test_delete_by_project(self, store: MemoryStore) -> None:
+        store.add("one", "f.md", "alpha")
+        store.add("two", "f.md", "alpha")
+        store.add("three", "f.md", "beta")
+        deleted = store.delete_by_project("alpha")
+        assert deleted == 2
+        assert store.count() == 1
+
+    def test_delete_by_project_empty(self, store: MemoryStore) -> None:
+        assert store.delete_by_project("nonexistent") == 0
+
+
+class TestGet:
+    def test_get_existing(self, store: MemoryStore) -> None:
+        mid = store.add("test content", "f.md", "alpha", "Config")
+        mem = store.get(mid)
+        assert mem is not None
+        assert mem.content == "test content"
+        assert mem.project == "alpha"
+
+    def test_get_nonexistent(self, store: MemoryStore) -> None:
+        assert store.get(9999) is None
+
+
 class TestStats:
     def test_stats_by_project(self, store: MemoryStore) -> None:
         store.add("one", "f.md", "alpha")

@@ -41,7 +41,7 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
     lines = [f'Found {len(results)} results for "{query}":\n']
     for i, result in enumerate(results, 1):
         mem = result.memory
-        lines.append(f"[{i}] {mem.project} / {mem.section or '(root)'}")
+        lines.append(f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id})")
         lines.append(f"    Source: {mem.source_file.split('/')[-1]}")
         lines.append(f"    {mem.snippet}")
         lines.append("")
@@ -185,6 +185,28 @@ def mem_save(
         f"Saved to '{project}'"
         + (f" / {section}" if section else "")
         + f" (id: {result})"
+    )
+
+
+@mcp.tool()
+def mem_forget(memory_id: int) -> str:
+    """Delete a memory by ID.
+
+    Use this to remove stale, wrong, or duplicate memories.
+    Find the ID via mem_search first, then pass it here.
+
+    Args:
+        memory_id: The ID of the memory to delete (shown in search results)
+    """
+    store = get_store()
+    mem = store.get(memory_id)
+    if not mem:
+        return f"Memory {memory_id} not found."
+
+    store.delete(memory_id)
+    return (
+        f"Deleted memory {memory_id}: "
+        f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
     )
 
 

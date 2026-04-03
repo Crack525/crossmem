@@ -50,10 +50,52 @@ def search(query: str, project: str | None, limit: int) -> None:
         click.echo(f'Found {len(results)} results for "{query}":\n')
         for i, result in enumerate(results, 1):
             mem = result.memory
-            click.echo(f"[{i}] {mem.project} / {mem.section or '(root)'}")
+            click.echo(f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id})")
             click.echo(f"    Source: {mem.source_file.split('/')[-1]}")
             click.echo(f"    {mem.snippet}")
             click.echo()
+    finally:
+        store.close()
+
+
+@main.command()
+@click.argument("memory_id", type=int, required=False)
+@click.option("-p", "--project", default=None, help="Delete all memories for a project")
+@click.option("--confirm", is_flag=True, help="Skip confirmation prompt")
+def forget(memory_id: int | None, project: str | None, confirm: bool) -> None:
+    """Delete memories by ID or by project.
+
+    Examples:
+        crossmem forget 42          # delete memory #42
+        crossmem forget -p old-app  # delete all memories for old-app
+    """
+    if not memory_id and not project:
+        click.echo("Provide a memory ID or --project. See: crossmem forget --help")
+        return
+
+    store = MemoryStore()
+    try:
+        if memory_id:
+            mem = store.get(memory_id)
+            if not mem:
+                click.echo(f"Memory {memory_id} not found.")
+                return
+            click.echo(f"  [{mem.id}] {mem.project} / {mem.section or '(root)'}")
+            click.echo(f"  {mem.snippet}")
+            if not confirm and not click.confirm("Delete this memory?"):
+                return
+            store.delete(memory_id)
+            click.echo(f"Deleted memory {memory_id}.")
+        elif project:
+            count = len(store.get_by_project(project))
+            if count == 0:
+                click.echo(f'No memories found for project "{project}".')
+                return
+            click.echo(f'Found {count} memories for "{project}".')
+            if not confirm and not click.confirm(f"Delete all {count}?"):
+                return
+            deleted = store.delete_by_project(project)
+            click.echo(f"Deleted {deleted} memories.")
     finally:
         store.close()
 

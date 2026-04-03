@@ -87,6 +87,11 @@ crossmem search "JWT token rotation"
 crossmem search "retry strategy" -p backend-api
 crossmem search "docker compose" -n 5
 
+# Delete stale or wrong memories
+crossmem forget 42                   # delete memory #42 (with confirmation)
+crossmem forget -p old-app           # delete all memories for a project
+crossmem forget 42 --confirm         # skip confirmation prompt
+
 # Sync Claude memories → Gemini CLI
 crossmem sync                        # sync everything
 crossmem sync -p backend-api        # sync one project + shared patterns
@@ -161,6 +166,7 @@ Add to your tool's MCP config:
 | `mem_recall` | Load project context + cross-project patterns at session start (auto-detects project from cwd) |
 | `mem_search` | Search across all memories (query, project filter, limit) |
 | `mem_save` | Save a discovery during a session — immediately searchable |
+| `mem_forget` | Delete a memory by ID (find IDs via `mem_search`) |
 | `mem_ingest` | Refresh the index when memory files change |
 
 ### Start manually

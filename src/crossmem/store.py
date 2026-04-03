@@ -213,6 +213,33 @@ class MemoryStore:
             for row in rows
         ]
 
+    def delete(self, memory_id: int) -> bool:
+        """Delete a memory by ID. Returns True if deleted."""
+        cursor = self.db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        self.db.commit()
+        return cursor.rowcount > 0
+
+    def delete_by_project(self, project: str) -> int:
+        """Delete all memories for a project. Returns count deleted."""
+        cursor = self.db.execute("DELETE FROM memories WHERE project = ?", (project,))
+        self.db.commit()
+        return cursor.rowcount
+
+    def get(self, memory_id: int) -> Memory | None:
+        """Get a single memory by ID."""
+        row = self.db.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        if not row:
+            return None
+        return Memory(
+            id=row["id"],
+            content=row["content"],
+            source_file=row["source_file"],
+            project=row["project"],
+            section=row["section"],
+            content_hash=row["content_hash"],
+            created_at=row["created_at"],
+        )
+
     def list_projects(self) -> list[str]:
         """Return all distinct project names."""
         rows = self.db.execute(

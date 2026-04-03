@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from crossmem.server import mem_save, resolve_project
+from crossmem.server import mem_forget, mem_save, resolve_project
 from crossmem.store import MemoryStore
 
 KNOWN_PROJECTS = [
@@ -125,3 +125,35 @@ class TestMemSave:
         mem_save(content="Test source tracking", project="my-app")
         memories = self._store.get_by_project("my-app")
         assert memories[0].source_file == "mcp:mem_save"
+
+
+class TestMemForget:
+    def setup_method(self) -> None:
+        import crossmem.server as srv
+
+        self._store = MemoryStore(db_path=Path(":memory:"))
+        self._original = srv._store
+        srv._store = self._store
+
+    def teardown_method(self) -> None:
+        import crossmem.server as srv
+
+        srv._store = self._original
+
+    def test_forget_by_id(self) -> None:
+        mem_save(content="Will be deleted", project="my-app")
+        memories = self._store.get_by_project("my-app")
+        result = mem_forget(memory_id=memories[0].id)
+        assert "Deleted memory" in result
+        assert self._store.count() == 0
+
+    def test_forget_nonexistent(self) -> None:
+        result = mem_forget(memory_id=9999)
+        assert "not found" in result
+
+    def test_forget_shows_context(self) -> None:
+        mem_save(content="Important security pattern", section="Security", project="my-app")
+        memories = self._store.get_by_project("my-app")
+        result = mem_forget(memory_id=memories[0].id)
+        assert "my-app" in result
+        assert "Security" in result
