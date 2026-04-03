@@ -1,0 +1,150 @@
+"""Tests for MemoryStore."""
+
+from pathlib import Path
+
+import pytest
+
+from crossmem.store import MemoryStore
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> MemoryStore:
+    return MemoryStore(db_path=tmp_path / "test.db")
+
+
+class TestAdd:
+    def test_add_returns_id(self, store: MemoryStore) -> None:
+        result = store.add("some content", "file.md", "proj", "section")
+        assert result is not None
+        assert isinstance(result, int)
+
+    def test_add_duplicate_returns_none(self, store: MemoryStore) -> None:
+        store.add("same content", "file.md", "proj")
+        result = store.add("same content", "file.md", "proj")
+        assert result is None
+
+    def test_same_content_different_project_allowed(self, store: MemoryStore) -> None:
+        id1 = store.add("shared content", "f.md", "proj-a")
+        id2 = store.add("shared content", "f.md", "proj-b")
+        assert id1 is not None
+        assert id2 is not None
+        assert id1 != id2
+
+    def test_count_increments(self, store: MemoryStore) -> None:
+        assert store.count() == 0
+        store.add("one", "f.md", "p")
+        store.add("two", "f.md", "p")
+        assert store.count() == 2
+
+
+class TestSearch:
+    def test_basic_search(self, store: MemoryStore) -> None:
+        store.add("Python logging best practices", "f.md", "proj")
+        store.add("Java garbage collection tuning", "f.md", "proj")
+        results = store.search("logging")
+        assert len(results) == 1
+        assert "logging" in results[0].memory.content
+
+    def test_and_logic(self, store: MemoryStore) -> None:
+        store.add("Python logging best practices", "f.md", "proj")
+        store.add("Python garbage collection tuning", "f.md", "proj")
+        store.add("Java logging framework setup", "f.md", "proj")
+        results = store.search("Python logging")
+        assert len(results) == 1
+        assert "Python logging" in results[0].memory.content
+
+    def test_project_filter(self, store: MemoryStore) -> None:
+        store.add("credential masking in tests", "f.md", "proj-a")
+        store.add("credential masking in prod", "f.md", "proj-b")
+        results = store.search("credential", project="proj-a")
+        assert len(results) == 1
+        assert results[0].memory.project == "proj-a"
+
+    def test_limit(self, store: MemoryStore) -> None:
+        for i in range(20):
+            store.add(f"memory about testing number {i}", "f.md", "proj")
+        results = store.search("testing", limit=5)
+        assert len(results) == 5
+
+    def test_no_results(self, store: MemoryStore) -> None:
+        store.add("something about docker", "f.md", "proj")
+        results = store.search("kubernetes")
+        assert len(results) == 0
+
+    def test_highlight_present(self, store: MemoryStore) -> None:
+        store.add("credential masking approach", "f.md", "proj")
+        results = store.search("credential")
+        assert len(results) == 1
+        assert ">>>" in results[0].highlight
+
+
+class TestBuildFtsQuery:
+    def test_single_word(self) -> None:
+        assert MemoryStore._build_fts_query("docker") == "docker"
+
+    def test_multi_word_and(self) -> None:
+        result = MemoryStore._build_fts_query("credential masking")
+        assert result == "credential AND masking"
+
+    def test_quoted_phrase(self) -> None:
+        result = MemoryStore._build_fts_query('"exact phrase"')
+        assert result == '"exact phrase"'
+
+    def test_mixed_quoted_and_words(self) -> None:
+        result = MemoryStore._build_fts_query('"exact phrase" other words')
+        assert result == '"exact phrase" AND other AND words'
+
+    def test_empty_returns_original(self) -> None:
+        assert MemoryStore._build_fts_query("") == ""
+
+
+class TestGetByProject:
+    def test_returns_project_memories(self, store: MemoryStore) -> None:
+        store.add("alpha content one", "f.md", "alpha", "Config")
+        store.add("alpha content two", "f.md", "alpha", "Security")
+        store.add("beta content", "f.md", "beta", "Config")
+        results = store.get_by_project("alpha")
+        assert len(results) == 2
+        assert all(m.project == "alpha" for m in results)
+
+    def test_respects_limit(self, store: MemoryStore) -> None:
+        for i in range(10):
+            store.add(f"memory {i}", "f.md", "proj", "section")
+        results = store.get_by_project("proj", limit=3)
+        assert len(results) == 3
+
+    def test_empty_project(self, store: MemoryStore) -> None:
+        assert store.get_by_project("nonexistent") == []
+
+
+class TestGetSharedSections:
+    def test_finds_shared_sections(self, store: MemoryStore) -> None:
+        store.add("alpha security", "f.md", "alpha", "Security")
+        store.add("beta security", "f.md", "beta", "Security")
+        store.add("beta deploy", "f.md", "beta", "Deployment")
+        results = store.get_shared_sections("alpha")
+        assert len(results) == 1
+        assert results[0].project == "beta"
+        assert results[0].section == "Security"
+
+    def test_excludes_own_project(self, store: MemoryStore) -> None:
+        store.add("alpha sec", "f.md", "alpha", "Security")
+        store.add("beta sec", "f.md", "beta", "Security")
+        results = store.get_shared_sections("alpha")
+        assert all(m.project != "alpha" for m in results)
+
+    def test_ignores_empty_sections(self, store: MemoryStore) -> None:
+        store.add("alpha root", "f.md", "alpha", "")
+        store.add("beta root", "f.md", "beta", "")
+        results = store.get_shared_sections("alpha")
+        assert len(results) == 0
+
+
+class TestStats:
+    def test_stats_by_project(self, store: MemoryStore) -> None:
+        store.add("one", "f.md", "alpha")
+        store.add("two", "f.md", "alpha")
+        store.add("three", "f.md", "beta")
+        stats = store.stats()
+        assert stats["alpha"] == 2
+        assert stats["beta"] == 1
