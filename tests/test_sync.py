@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from crossmem.store import MemoryStore
 from crossmem.sync import (
     SYNC_END,
     SYNC_START,
@@ -170,6 +171,45 @@ class TestSyncOnce:
         assert "temperature 0.0" in content
         assert SYNC_START in content
         assert SYNC_END in content
+
+    def test_includes_mem_save_memories(self, tmp_path: Path) -> None:
+        # No Claude files — only DB-saved memories
+        claude_path = tmp_path / "claude"
+        claude_path.mkdir()
+        gemini_path = tmp_path / "GEMINI.md"
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        store.add("Use retry with exponential backoff", "mcp:mem_save", "my-api", "Patterns")
+
+        count, changed = sync_once(
+            claude_path=claude_path,
+            gemini_path=gemini_path,
+            store=store,
+        )
+        assert changed is True
+        content = gemini_path.read_text()
+        assert "retry with exponential backoff" in content
+        assert "my-api" in content
+
+    def test_mem_save_deduped_with_file_memories(self, tmp_path: Path) -> None:
+        # Same content in both file and DB — should appear only once
+        proj_dir = tmp_path / "claude/-Users-test-proj/memory"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "MEMORY.md").write_text("# Config\nUse temperature 0.0 always.\n")
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        store.add("Use temperature 0.0 always.", "mcp:mem_save", "test-proj", "Config")
+
+        gemini_path = tmp_path / "GEMINI.md"
+        count, changed = sync_once(
+            claude_path=tmp_path / "claude",
+            gemini_path=gemini_path,
+            store=store,
+        )
+        assert changed is True
+        content = gemini_path.read_text()
+        # Should appear exactly once
+        assert content.count("temperature 0.0") == 1
 
     def test_with_project_filter(self, tmp_path: Path) -> None:
         # Create two projects with a shared section

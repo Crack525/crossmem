@@ -1,10 +1,16 @@
 """Claude → Gemini one-way memory sync."""
 
+from __future__ import annotations
+
 import re
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from crossmem.ingest import extract_project_name, parse_markdown_sections
+
+if TYPE_CHECKING:
+    from crossmem.store import MemoryStore
 
 SYNC_START = "<!-- crossmem-sync-start -->"
 SYNC_END = "<!-- crossmem-sync-end -->"
@@ -135,15 +141,31 @@ def sync_once(
     claude_path: Path | None = None,
     gemini_path: Path | None = None,
     project: str | None = None,
+    store: MemoryStore | None = None,
 ) -> tuple[int, bool]:
     """Run a single Claude → Gemini sync.
 
     If project is specified, syncs only that project's memories plus
     cross-project patterns (sections appearing in 2+ projects).
 
+    If store is provided, also includes memories saved via mem_save.
+
     Returns (bullet_count, changed).
     """
     memories = collect_claude_memories(claude_path)
+
+    # Include DB-saved memories (from mem_save)
+    if store is None:
+        from crossmem.store import MemoryStore
+
+        store = MemoryStore()
+    saved = store.get_saved_memories()
+    # Deduplicate: DB memories may overlap with file-based ones
+    existing = {(p, s, c) for p, s, c in memories}
+    for entry in saved:
+        if entry not in existing:
+            memories.append(entry)
+
     if not memories:
         return 0, False
     if project:

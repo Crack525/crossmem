@@ -240,6 +240,14 @@ class MemoryStore:
             created_at=row["created_at"],
         )
 
+    def get_saved_memories(self) -> list[tuple[str, str, str]]:
+        """Return (project, section, content) tuples for memories saved via mem_save."""
+        rows = self.db.execute(
+            "SELECT project, section, content FROM memories"
+            " WHERE source_file = 'mcp:mem_save' ORDER BY project, section"
+        ).fetchall()
+        return [(row["project"], row["section"], row["content"]) for row in rows]
+
     def list_projects(self) -> list[str]:
         """Return all distinct project names."""
         rows = self.db.execute(
