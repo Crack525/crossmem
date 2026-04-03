@@ -167,7 +167,7 @@ Add to your tool's MCP config:
 | `mem_search` | Search across all memories (query, project filter, limit) |
 | `mem_save` | Save a discovery during a session — immediately searchable |
 | `mem_forget` | Delete a memory by ID (find IDs via `mem_search`) |
-| `mem_ingest` | Refresh the index when memory files change |
+| `mem_ingest` | Refresh the index when memory files change (auto-runs on server startup) |
 
 ### Start manually
 
