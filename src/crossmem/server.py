@@ -17,6 +17,9 @@ def get_store() -> MemoryStore:
     global _store
     if _store is None:
         _store = MemoryStore()
+        # Auto-ingest on first access (server startup)
+        ingest_claude_memory(_store)
+        ingest_gemini_memory(_store)
     return _store
 
 
@@ -122,7 +125,7 @@ def mem_recall(project: str | None = None, cwd: str | None = None) -> str:
         lines.append(f"## {project} memories ({len(project_memories)}):\n")
         for mem in project_memories:
             section = f" / {mem.section}" if mem.section else ""
-            lines.append(f"- **{mem.project}{section}**: {mem.snippet}")
+            lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
         lines.append("")
 
     if shared_memories:
@@ -131,7 +134,7 @@ def mem_recall(project: str | None = None, cwd: str | None = None) -> str:
         )
         for mem in shared_memories:
             label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-            lines.append(f"- **{label}**: {mem.snippet}")
+            lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
         lines.append("")
 
     if not lines:
