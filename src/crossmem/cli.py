@@ -101,6 +101,30 @@ def forget(memory_id: int | None, project: str | None, confirm: bool) -> None:
 
 
 @main.command()
+@click.argument("content")
+@click.option("-p", "--project", required=True, help="Project name")
+@click.option("-s", "--section", default="", help="Section heading (e.g. Security, Patterns)")
+def save(content: str, project: str, section: str) -> None:
+    """Save a memory from the command line.
+
+    Examples:
+        crossmem save "Use retry with backoff" -p backend-api -s Patterns
+    """
+    store = MemoryStore()
+    try:
+        result = store.add(content, "cli:save", project, section)
+        if result is None:
+            click.echo(f"Memory already exists for project '{project}'.")
+        else:
+            label = f"'{project}'"
+            if section:
+                label += f" / {section}"
+            click.echo(f"Saved to {label} (id: {result})")
+    finally:
+        store.close()
+
+
+@main.command()
 @click.option("--port", default=8765, help="Port for local server")
 def graph(port: int) -> None:
     """Visualize the knowledge graph in your browser."""

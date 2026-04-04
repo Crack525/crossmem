@@ -87,6 +87,9 @@ crossmem search "JWT token rotation"
 crossmem search "retry strategy" -p backend-api
 crossmem search "docker compose" -n 5
 
+# Save a discovery
+crossmem save "Always use middleware for credential masking" -p backend-api -s Patterns
+
 # Delete stale or wrong memories
 crossmem forget 42                   # delete memory #42 (with confirmation)
 crossmem forget -p old-app           # delete all memories for a project
@@ -114,6 +117,26 @@ crossmem stats
 3. **Search** — Full-text search with stemming. Multi-word queries use AND logic; quoted phrases for exact matches
 4. **Learn** — AI tools save new discoveries via `mem_save` during sessions. Knowledge compounds automatically
 5. **Sync** — One-way sync from Claude → Gemini, preserving each tool's own memories
+
+## How it works with your AI tools
+
+Once the MCP server is configured, your AI assistant automatically uses crossmem:
+
+```
+You: "How should I handle credentials in this new service?"
+
+AI: Let me check crossmem for existing patterns...
+    [calls mem_recall → finds credential masking in 3 of your projects]
+
+    Based on your previous work across backend-api, mobile-app, and infra-tools,
+    you consistently use a middleware layer for credential masking. Here's the
+    pattern from your backend-api project:
+    - Credentials stored in Secret Manager, never in env vars
+    - API keys masked in logs via _mask_sensitive_headers()
+    ...
+```
+
+No copy-pasting. No "I already solved this." Your AI assistant recalls patterns from every project you've worked on — automatically.
 
 ## MCP Server
 
