@@ -7,6 +7,8 @@
 
 One search across all your Claude Code and Gemini CLI memories — every project, every tool.
 
+![Before and after crossmem](visuals/problem-solution.png)
+
 ![crossmem demo](demo/demo.gif)
 
 ## The problem
