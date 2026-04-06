@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from crossmem.server import mem_forget, mem_save, resolve_project
+from crossmem.server import mem_forget, mem_get, mem_save, resolve_project
 from crossmem.store import MemoryStore
 
 KNOWN_PROJECTS = [
@@ -157,3 +157,36 @@ class TestMemForget:
         result = mem_forget(memory_id=memories[0].id)
         assert "my-app" in result
         assert "Security" in result
+
+
+class TestMemGet:
+    def setup_method(self) -> None:
+        import crossmem.server as srv
+
+        self._store = MemoryStore(db_path=Path(":memory:"))
+        self._original = srv._store
+        srv._store = self._store
+
+    def teardown_method(self) -> None:
+        import crossmem.server as srv
+
+        srv._store = self._original
+
+    def test_get_returns_full_content(self) -> None:
+        long_content = "A" * 500
+        mem_save(content=long_content, project="my-app", section="Architecture")
+        memories = self._store.get_by_project("my-app")
+        result = mem_get(memory_id=memories[0].id)
+        assert long_content in result
+        assert "my-app / Architecture" in result
+
+    def test_get_nonexistent(self) -> None:
+        result = mem_get(memory_id=9999)
+        assert "not found" in result
+
+    def test_get_without_section(self) -> None:
+        mem_save(content="simple memory", project="my-app")
+        memories = self._store.get_by_project("my-app")
+        result = mem_get(memory_id=memories[0].id)
+        assert "simple memory" in result
+        assert "my-app" in result

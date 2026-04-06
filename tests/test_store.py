@@ -45,6 +45,18 @@ class TestSearch:
         assert len(results) == 1
         assert "logging" in results[0].memory.content
 
+    def test_hyphenated_term_search(self, store: MemoryStore) -> None:
+        store.add("sub-agent isolation improves context quality", "f.md", "proj")
+        store.add("cross-tool memory bridge", "f.md", "proj")
+        results = store.search("sub-agent")
+        assert len(results) == 1
+        assert "sub-agent" in results[0].memory.content
+
+    def test_multiple_hyphenated_terms(self, store: MemoryStore) -> None:
+        store.add("cross-tool local-first developer infrastructure", "f.md", "proj")
+        results = store.search("cross-tool local-first")
+        assert len(results) == 1
+
     def test_and_logic(self, store: MemoryStore) -> None:
         store.add("Python logging best practices", "f.md", "proj")
         store.add("Python garbage collection tuning", "f.md", "proj")
@@ -96,6 +108,18 @@ class TestBuildFtsQuery:
 
     def test_empty_returns_original(self) -> None:
         assert MemoryStore._build_fts_query("") == ""
+
+    def test_hyphenated_word_quoted(self) -> None:
+        result = MemoryStore._build_fts_query("sub-agent isolation")
+        assert result == '"sub-agent" AND isolation'
+
+    def test_multiple_hyphenated_words(self) -> None:
+        result = MemoryStore._build_fts_query("cross-tool local-first")
+        assert result == '"cross-tool" AND "local-first"'
+
+    def test_hyphenated_with_quoted_phrase(self) -> None:
+        result = MemoryStore._build_fts_query('"exact phrase" pre-commit hooks')
+        assert result == '"exact phrase" AND "pre-commit" AND hooks'
 
 
 class TestGetByProject:

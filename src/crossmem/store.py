@@ -161,7 +161,9 @@ class MemoryStore:
         parts = [f'"{p}"' for p in phrases]
         if remaining:
             words = remaining.split()
-            parts.extend(words)
+            # Quote hyphenated words — FTS5 interprets "-" as column filter
+            # e.g. "sub-agent" becomes column:sub term:agent → crash
+            parts.extend(f'"{w}"' if "-" in w else w for w in words)
 
         if not parts:
             return query

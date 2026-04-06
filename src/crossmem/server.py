@@ -192,6 +192,28 @@ def mem_save(
 
 
 @mcp.tool()
+def mem_get(memory_id: int) -> str:
+    """Get the full content of a memory by ID.
+
+    Use this after mem_search or mem_recall to read a memory's complete
+    content (search results are truncated to 200 chars).
+
+    Args:
+        memory_id: The ID of the memory to retrieve (shown in search results)
+    """
+    store = get_store()
+    mem = store.get(memory_id)
+    if not mem:
+        return f"Memory {memory_id} not found."
+
+    section = f" / {mem.section}" if mem.section else ""
+    return (
+        f"## {mem.project}{section} (id: {mem.id})\n\n"
+        f"{mem.content}"
+    )
+
+
+@mcp.tool()
 def mem_forget(memory_id: int) -> str:
     """Delete a memory by ID.
 
