@@ -101,6 +101,38 @@ def forget(memory_id: int | None, project: str | None, confirm: bool) -> None:
 
 
 @main.command()
+@click.argument("memory_id", type=int)
+@click.argument("content")
+@click.option("-s", "--section", default=None, help="New section (keeps current if omitted)")
+@click.option("-p", "--project", default=None, help="New project (keeps current if omitted)")
+def update(memory_id: int, content: str, section: str | None, project: str | None) -> None:
+    """Update a memory in place, preserving its ID.
+
+    Examples:
+        crossmem update 42 "corrected content"
+        crossmem update 42 "moved" -s Experiments
+    """
+    store = MemoryStore()
+    try:
+        mem = store.get(memory_id)
+        if not mem:
+            click.echo(f"Memory {memory_id} not found.")
+            return
+        updated = store.update(memory_id, content, section=section, project=project)
+        if updated:
+            new_project = project or mem.project
+            new_section = section if section is not None else mem.section
+            label = f"'{new_project}'"
+            if new_section:
+                label += f" / {new_section}"
+            click.echo(f"Updated memory {memory_id}: {label}")
+        else:
+            click.echo(f"Failed to update memory {memory_id}.")
+    finally:
+        store.close()
+
+
+@main.command()
 @click.argument("content")
 @click.option("-p", "--project", required=True, help="Project name")
 @click.option("-s", "--section", default="", help="Section heading (e.g. Security, Patterns)")

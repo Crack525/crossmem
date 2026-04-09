@@ -215,6 +215,31 @@ class MemoryStore:
             for row in rows
         ]
 
+    def update(
+        self,
+        memory_id: int,
+        content: str,
+        section: str | None = None,
+        project: str | None = None,
+    ) -> bool:
+        """Update a memory in place. Returns True if updated."""
+        mem = self.get(memory_id)
+        if not mem:
+            return False
+
+        new_section = section if section is not None else mem.section
+        new_project = project if project is not None else mem.project
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+
+        self.db.execute(
+            """UPDATE memories
+               SET content = ?, section = ?, project = ?, content_hash = ?
+               WHERE id = ?""",
+            (content, new_section, new_project, content_hash, memory_id),
+        )
+        self.db.commit()
+        return True
+
     def delete(self, memory_id: int) -> bool:
         """Delete a memory by ID. Returns True if deleted."""
         cursor = self.db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))

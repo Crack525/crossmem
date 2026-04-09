@@ -164,6 +164,43 @@ class TestGetSharedSections:
         assert len(results) == 0
 
 
+class TestUpdate:
+    def test_update_content(self, store: MemoryStore) -> None:
+        mid = store.add("old content", "f.md", "alpha", "Config")
+        assert store.update(mid, "new content") is True
+        mem = store.get(mid)
+        assert mem.content == "new content"
+        assert mem.id == mid
+
+    def test_update_preserves_section_and_project(self, store: MemoryStore) -> None:
+        mid = store.add("original", "f.md", "alpha", "Security")
+        store.update(mid, "updated")
+        mem = store.get(mid)
+        assert mem.project == "alpha"
+        assert mem.section == "Security"
+
+    def test_update_section(self, store: MemoryStore) -> None:
+        mid = store.add("content", "f.md", "alpha", "Research")
+        store.update(mid, "content v2", section="Experiments")
+        mem = store.get(mid)
+        assert mem.section == "Experiments"
+
+    def test_update_project(self, store: MemoryStore) -> None:
+        mid = store.add("content", "f.md", "alpha", "Config")
+        store.update(mid, "content v2", project="beta")
+        mem = store.get(mid)
+        assert mem.project == "beta"
+
+    def test_update_nonexistent(self, store: MemoryStore) -> None:
+        assert store.update(9999, "anything") is False
+
+    def test_update_refreshes_fts(self, store: MemoryStore) -> None:
+        mid = store.add("old searchable keyword", "f.md", "alpha")
+        store.update(mid, "new discoverable term")
+        assert len(store.search("old")) == 0
+        assert len(store.search("discoverable")) == 1
+
+
 class TestDelete:
     def test_delete_by_id(self, store: MemoryStore) -> None:
         mid = store.add("to delete", "f.md", "alpha", "Config")

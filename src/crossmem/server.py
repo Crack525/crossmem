@@ -214,6 +214,47 @@ def mem_get(memory_id: int) -> str:
 
 
 @mcp.tool()
+def mem_update(
+    memory_id: int,
+    content: str,
+    section: str | None = None,
+    project: str | None = None,
+) -> str:
+    """Update an existing memory in place, preserving its ID.
+
+    Use this instead of delete + re-save when correcting or evolving
+    a memory. The ID stays the same so references don't break.
+
+    Args:
+        memory_id: The ID of the memory to update (find via mem_search)
+        content: The new content (replaces the old content entirely)
+        section: New section/category (keeps current if omitted)
+        project: New project name (keeps current if omitted)
+    """
+    store = get_store()
+    mem = store.get(memory_id)
+    if not mem:
+        return f"Memory {memory_id} not found."
+
+    updated = store.update(
+        memory_id=memory_id,
+        content=content,
+        section=section,
+        project=project,
+    )
+    if not updated:
+        return f"Failed to update memory {memory_id}."
+
+    new_section = section if section is not None else mem.section
+    new_project = project if project is not None else mem.project
+    return (
+        f"Updated memory {memory_id}: "
+        f"{new_project}"
+        + (f" / {new_section}" if new_section else "")
+    )
+
+
+@mcp.tool()
 def mem_forget(memory_id: int) -> str:
     """Delete a memory by ID.
 

@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from crossmem.server import mem_forget, mem_get, mem_save, resolve_project
+from crossmem.server import mem_forget, mem_get, mem_save, mem_update, resolve_project
 from crossmem.store import MemoryStore
 
 KNOWN_PROJECTS = [
@@ -157,6 +157,52 @@ class TestMemForget:
         result = mem_forget(memory_id=memories[0].id)
         assert "my-app" in result
         assert "Security" in result
+
+
+class TestMemUpdate:
+    def setup_method(self) -> None:
+        import crossmem.server as srv
+
+        self._store = MemoryStore(db_path=Path(":memory:"))
+        self._original = srv._store
+        srv._store = self._store
+
+    def teardown_method(self) -> None:
+        import crossmem.server as srv
+
+        srv._store = self._original
+
+    def test_update_content(self) -> None:
+        mem_save(content="old info", project="my-app", section="Config")
+        memories = self._store.get_by_project("my-app")
+        result = mem_update(memory_id=memories[0].id, content="new info")
+        assert "Updated memory" in result
+        assert "my-app" in result
+        mem = self._store.get(memories[0].id)
+        assert mem.content == "new info"
+
+    def test_update_section(self) -> None:
+        mem_save(content="misplaced", project="my-app", section="Research")
+        memories = self._store.get_by_project("my-app")
+        result = mem_update(
+            memory_id=memories[0].id, content="corrected", section="Experiments"
+        )
+        assert "Experiments" in result
+        mem = self._store.get(memories[0].id)
+        assert mem.section == "Experiments"
+
+    def test_update_nonexistent(self) -> None:
+        result = mem_update(memory_id=9999, content="anything")
+        assert "not found" in result
+
+    def test_update_preserves_id(self) -> None:
+        mem_save(content="original", project="my-app")
+        memories = self._store.get_by_project("my-app")
+        original_id = memories[0].id
+        mem_update(memory_id=original_id, content="updated")
+        mem = self._store.get(original_id)
+        assert mem is not None
+        assert mem.id == original_id
 
 
 class TestMemGet:

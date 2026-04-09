@@ -92,6 +92,10 @@ crossmem search "docker compose" -n 5
 # Save a discovery
 crossmem save "Always use middleware for credential masking" -p backend-api -s Patterns
 
+# Update a memory in place (preserves ID)
+crossmem update 42 "corrected content here"
+crossmem update 42 "moved content" -s Experiments  # change section too
+
 # Delete stale or wrong memories
 crossmem forget 42                   # delete memory #42 (with confirmation)
 crossmem forget -p old-app           # delete all memories for a project
@@ -191,7 +195,9 @@ Add to your tool's MCP config:
 | `mem_recall` | Load project context + cross-project patterns at session start (auto-detects project from cwd) |
 | `mem_search` | Search across all memories (query, project filter, limit) |
 | `mem_save` | Save a discovery during a session — immediately searchable |
+| `mem_update` | Update a memory in place — preserves ID, optionally moves section/project |
 | `mem_forget` | Delete a memory by ID (find IDs via `mem_search`) |
+| `mem_get` | Get the full content of a memory by ID (search results are truncated) |
 | `mem_ingest` | Refresh the index when memory files change (auto-runs on server startup) |
 
 ### Start manually
