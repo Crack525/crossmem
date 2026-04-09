@@ -112,6 +112,65 @@ def ingest_gemini_memory(store: MemoryStore, base_path: Path | None = None) -> i
     return added
 
 
+def ingest_copilot_memory(store: MemoryStore, base_path: Path | None = None) -> int:
+    """Ingest GitHub Copilot memory files into the store.
+
+    Copilot stores memories as markdown files in:
+    ~/Library/Application Support/Code/User/globalStorage/
+        github.copilot-chat/memory-tool/memories/*.md
+
+    Each file becomes one or more memories (split by headings).
+    Returns the number of new memories added.
+    """
+    if base_path is None:
+        base_path = (
+            Path.home()
+            / "Library"
+            / "Application Support"
+            / "Code"
+            / "User"
+            / "globalStorage"
+            / "github.copilot-chat"
+            / "memory-tool"
+            / "memories"
+        )
+
+    if not base_path.exists():
+        return 0
+
+    added = 0
+    for md_file in sorted(base_path.glob("*.md")):
+        content = md_file.read_text(encoding="utf-8", errors="replace")
+        if not content.strip():
+            continue
+
+        # Use filename (without extension) as the section
+        file_section = md_file.stem.replace("-", " ").title()
+        sections = parse_markdown_sections(content)
+
+        if not sections:
+            result = store.add(
+                content=content.strip(),
+                source_file=str(md_file),
+                project="copilot",
+                section=file_section,
+            )
+            if result is not None:
+                added += 1
+        else:
+            for heading, text in sections:
+                result = store.add(
+                    content=text,
+                    source_file=str(md_file),
+                    project="copilot",
+                    section=heading or file_section,
+                )
+                if result is not None:
+                    added += 1
+
+    return added
+
+
 def ingest_claude_memory(store: MemoryStore, base_path: Path | None = None) -> int:
     """Ingest all Claude Code memory files into the store.
 

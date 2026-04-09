@@ -6,6 +6,7 @@ from crossmem.ingest import (
     extract_gemini_project,
     extract_project_name,
     ingest_claude_memory,
+    ingest_copilot_memory,
     ingest_gemini_memory,
     parse_markdown_sections,
 )
@@ -172,3 +173,75 @@ class TestIngestGeminiMemory:
         second = ingest_gemini_memory(store, base_path=gemini_dir)
         assert first == 1
         assert second == 0
+
+
+class TestIngestCopilotMemory:
+    def test_ingests_from_memory_dir(self, tmp_path: Path) -> None:
+        mem_dir = tmp_path / "memories"
+        mem_dir.mkdir()
+        (mem_dir / "project-patterns.md").write_text(
+            "# Architecture\nAlways use dependency injection for service layers.\n\n"
+            "# Testing\nMock external APIs with httpx fixtures in all tests.\n"
+        )
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_copilot_memory(store, base_path=mem_dir)
+        assert added == 2
+        assert store.count() == 2
+
+    def test_uses_filename_as_fallback_section(self, tmp_path: Path) -> None:
+        mem_dir = tmp_path / "memories"
+        mem_dir.mkdir()
+        (mem_dir / "docker-tips.md").write_text(
+            "Use multi-stage builds to keep images under 200MB.\n"
+        )
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        ingest_copilot_memory(store, base_path=mem_dir)
+        memories = store.get_by_project("copilot")
+        assert len(memories) == 1
+        assert memories[0].section == "Docker Tips"
+
+    def test_project_is_copilot(self, tmp_path: Path) -> None:
+        mem_dir = tmp_path / "memories"
+        mem_dir.mkdir()
+        (mem_dir / "notes.md").write_text(
+            "Always check error boundaries in React components.\n"
+        )
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        ingest_copilot_memory(store, base_path=mem_dir)
+        memories = store.get_by_project("copilot")
+        assert len(memories) == 1
+
+    def test_no_dir_returns_zero(self, tmp_path: Path) -> None:
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_copilot_memory(store, base_path=tmp_path / "nonexistent")
+        assert added == 0
+
+    def test_idempotent(self, tmp_path: Path) -> None:
+        mem_dir = tmp_path / "memories"
+        mem_dir.mkdir()
+        (mem_dir / "patterns.md").write_text(
+            "# Logging\nUse structured logging with correlation IDs everywhere.\n"
+        )
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        first = ingest_copilot_memory(store, base_path=mem_dir)
+        second = ingest_copilot_memory(store, base_path=mem_dir)
+        assert first == 1
+        assert second == 0
+
+    def test_multiple_files(self, tmp_path: Path) -> None:
+        mem_dir = tmp_path / "memories"
+        mem_dir.mkdir()
+        (mem_dir / "security.md").write_text(
+            "Never store secrets in environment variables directly.\n"
+        )
+        (mem_dir / "performance.md").write_text(
+            "Use connection pooling for all database connections.\n"
+        )
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_copilot_memory(store, base_path=mem_dir)
+        assert added == 2

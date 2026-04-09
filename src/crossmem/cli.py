@@ -2,7 +2,7 @@
 
 import click
 
-from crossmem.ingest import ingest_claude_memory, ingest_gemini_memory
+from crossmem.ingest import ingest_claude_memory, ingest_copilot_memory, ingest_gemini_memory
 from crossmem.store import DEFAULT_DB_PATH, MemoryStore
 
 
@@ -21,6 +21,8 @@ def ingest() -> None:
         added = ingest_claude_memory(store)
         click.echo("Ingesting Gemini CLI memories...")
         added += ingest_gemini_memory(store)
+        click.echo("Ingesting GitHub Copilot memories...")
+        added += ingest_copilot_memory(store)
         total = store.count()
         stats = store.stats()
 

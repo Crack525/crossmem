@@ -5,7 +5,7 @@
 [![Downloads](https://img.shields.io/pypi/dm/crossmem)](https://pypistats.org/packages/crossmem)
 [![License](https://img.shields.io/pypi/l/crossmem)](https://github.com/Crack525/crossmem/blob/main/LICENSE)
 
-One search across all your Claude Code and Gemini CLI memories — every project, every tool.
+One search across all your Claude Code, GitHub Copilot, and Gemini CLI memories — every project, every tool.
 
 ![Before and after crossmem](visuals/problem-solution.png)
 
@@ -212,7 +212,7 @@ crossmem serve    # starts MCP server on stdio (same as crossmem-server)
 |------|-----------|
 | Claude Code | `~/.claude/projects/*/memory/*.md` |
 | Gemini CLI | `~/.gemini/GEMINI.md` |
-| VS Code / GitHub Copilot | Via MCP server (no direct ingestion — uses the shared index) |
+| GitHub Copilot | `~/Library/Application Support/Code/User/globalStorage/github.copilot-chat/memory-tool/memories/*.md` |
 
 Ingestion is pluggable — PRs welcome for new tools.
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from crossmem.ingest import ingest_claude_memory, ingest_gemini_memory
+from crossmem.ingest import ingest_claude_memory, ingest_copilot_memory, ingest_gemini_memory
 from crossmem.store import MemoryStore
 
 mcp = FastMCP("crossmem")
@@ -20,6 +20,7 @@ def get_store() -> MemoryStore:
         # Auto-ingest on first access (server startup)
         ingest_claude_memory(_store)
         ingest_gemini_memory(_store)
+        ingest_copilot_memory(_store)
     return _store
 
 
@@ -286,11 +287,12 @@ def mem_ingest() -> str:
     store = get_store()
     claude_added = ingest_claude_memory(store)
     gemini_added = ingest_gemini_memory(store)
+    copilot_added = ingest_copilot_memory(store)
     total = store.count()
     stats = store.stats()
 
     lines = [
-        f"Ingested: {claude_added + gemini_added} new memories ({total} total)",
+        f"Ingested: {claude_added + gemini_added + copilot_added} new memories ({total} total)",
         f"Projects ({len(stats)}):",
     ]
     for proj, count in stats.items():
