@@ -5,7 +5,14 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from crossmem.ingest import ingest_claude_memory, ingest_copilot_memory, ingest_gemini_memory
+from crossmem.ingest import (
+    derive_project_name,
+    has_project_docs,
+    ingest_claude_memory,
+    ingest_copilot_memory,
+    ingest_gemini_memory,
+    ingest_project_docs,
+)
 from crossmem.store import MemoryStore
 
 mcp = FastMCP("crossmem")
@@ -102,20 +109,30 @@ def mem_recall(project: str | None = None, cwd: str | None = None) -> str:
         cwd: Working directory path for auto-detection (defaults to os.getcwd())
     """
     store = get_store()
+    cwd = cwd or os.getcwd()
+    project_dir = Path(cwd)
 
     if not project:
-        cwd = cwd or os.getcwd()
         known = store.list_projects()
         project = resolve_project(cwd, known)
         if not project:
-            return (
-                f'Could not detect project from "{cwd}".\n'
-                f"Known projects: {', '.join(known)}\n"
-                "Pass an explicit project name to mem_recall(project=...)."
-            )
+            if has_project_docs(project_dir):
+                project = derive_project_name(project_dir)
+                ingest_project_docs(store, project_dir, project=project)
+            else:
+                return (
+                    f'Could not detect project from "{cwd}".\n'
+                    f"Known projects: {', '.join(known)}\n"
+                    "Pass an explicit project name to mem_recall(project=...)."
+                )
 
     # Get project-specific memories from the store
     project_memories = store.get_by_project(project)
+
+    # Auto-init if project exists but has no memories yet
+    if not project_memories and has_project_docs(project_dir):
+        ingest_project_docs(store, project_dir, project=project)
+        project_memories = store.get_by_project(project)
 
     # Get cross-project patterns (other projects sharing the same section names)
     shared_memories = store.get_shared_sections(project)
@@ -299,6 +316,42 @@ def mem_ingest() -> str:
         lines.append(f"  {proj}: {count}")
 
     return "\n".join(lines)
+
+
+@mcp.tool()
+def mem_init(cwd: str | None = None, project: str | None = None) -> str:
+    """Index project documentation files for cross-tool recall.
+
+    Scans the project directory for README.md, CLAUDE.md, CONTRIBUTING.md,
+    ARCHITECTURE.md, and .github/copilot-instructions.md, then stores
+    them as searchable memories.
+
+    Re-runnable: unchanged content is skipped, new content is added.
+
+    Args:
+        cwd: Project directory to scan (defaults to os.getcwd())
+        project: Project name (auto-detected from git remote or directory)
+    """
+    from crossmem.ingest import derive_project_name
+
+    store = get_store()
+    project_dir = Path(cwd) if cwd else Path(os.getcwd())
+
+    if not project:
+        project = derive_project_name(project_dir)
+
+    added = ingest_project_docs(store, project_dir, project=project)
+    total = len(store.get_by_project(project))
+
+    if added == 0 and total > 0:
+        return f"'{project}' already up to date ({total} memories)."
+    elif added == 0:
+        return (
+            f"No documentation files found in {project_dir}.\n"
+            "Looked for: README.md, CLAUDE.md, CONTRIBUTING.md, "
+            "ARCHITECTURE.md, .github/copilot-instructions.md"
+        )
+    return f"Initialized '{project}': {added} new memories ({total} total)"
 
 
 def main() -> None:

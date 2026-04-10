@@ -1,4 +1,4 @@
-"""Claude → Gemini one-way memory sync."""
+"""Claude → Gemini one-way memory sync (legacy, pre-MCP)."""
 
 from __future__ import annotations
 

@@ -1,9 +1,22 @@
 """Ingest memory files from AI coding tools."""
 
 import re
+import subprocess
 from pathlib import Path
 
 from crossmem.store import MemoryStore
+
+# Project doc files to scan during `crossmem init`
+PROJECT_DOC_NAMES = {
+    "README.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "ARCHITECTURE.md",
+    ".github/copilot-instructions.md",
+}
+
+# Search in root and docs/ subdirectory
+PROJECT_DOC_DIRS = [".", "docs"]
 
 
 def extract_project_name(path: Path) -> str:
@@ -149,7 +162,7 @@ def ingest_copilot_memory(store: MemoryStore, base_path: Path | None = None) -> 
         sections = parse_markdown_sections(content)
 
         if not sections:
-            result = store.add(
+            result = store.upsert(
                 content=content.strip(),
                 source_file=str(md_file),
                 project="copilot",
@@ -159,11 +172,107 @@ def ingest_copilot_memory(store: MemoryStore, base_path: Path | None = None) -> 
                 added += 1
         else:
             for heading, text in sections:
-                result = store.add(
+                result = store.upsert(
                     content=text,
                     source_file=str(md_file),
                     project="copilot",
                     section=heading or file_section,
+                )
+                if result is not None:
+                    added += 1
+
+    return added
+
+
+def derive_project_name(project_dir: Path) -> str:
+    """Derive a project name from a directory.
+
+    Tries git remote origin first, falls back to directory basename.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            url = result.stdout.strip()
+            # Extract repo name from git URL
+            # https://github.com/user/repo.git → repo
+            # git@github.com:user/repo.git → repo
+            name = url.rstrip("/").rsplit("/", 1)[-1]
+            name = name.removesuffix(".git")
+            if name:
+                return name.lower().replace("_", "-")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return project_dir.name.lower().replace("_", "-")
+
+
+def find_project_docs(project_dir: Path) -> list[Path]:
+    """Find project documentation files in a directory."""
+    found = []
+    for subdir in PROJECT_DOC_DIRS:
+        base = project_dir / subdir if subdir != "." else project_dir
+        for name in PROJECT_DOC_NAMES:
+            candidate = base / name
+            if candidate.is_file():
+                found.append(candidate)
+    return sorted(found)
+
+
+def has_project_docs(project_dir: Path) -> bool:
+    """Check if a directory has any project documentation files."""
+    return len(find_project_docs(project_dir)) > 0
+
+
+def ingest_project_docs(
+    store: MemoryStore,
+    project_dir: Path,
+    project: str | None = None,
+) -> int:
+    """Ingest project documentation files into the store.
+
+    Scans for README.md, CLAUDE.md, CONTRIBUTING.md, ARCHITECTURE.md,
+    and .github/copilot-instructions.md in the project root and docs/.
+
+    Re-runnable: uses content-hash dedup so unchanged content is skipped.
+    """
+    if project is None:
+        project = derive_project_name(project_dir)
+
+    docs = find_project_docs(project_dir)
+    if not docs:
+        return 0
+
+    added = 0
+    for doc_file in docs:
+        content = doc_file.read_text(encoding="utf-8", errors="replace")
+        if not content.strip():
+            continue
+
+        source = f"init:{doc_file.relative_to(project_dir)}"
+        sections = parse_markdown_sections(content)
+
+        if not sections:
+            result = store.upsert(
+                content=content.strip(),
+                source_file=source,
+                project=project,
+                section=doc_file.stem,
+            )
+            if result is not None:
+                added += 1
+        else:
+            for heading, text in sections:
+                result = store.upsert(
+                    content=text,
+                    source_file=source,
+                    project=project,
+                    section=heading or doc_file.stem,
                 )
                 if result is not None:
                     added += 1
@@ -197,7 +306,7 @@ def ingest_claude_memory(store: MemoryStore, base_path: Path | None = None) -> i
 
         if not sections:
             # No sections found — store the whole file as one memory
-            result = store.add(
+            result = store.upsert(
                 content=content.strip(),
                 source_file=str(md_file),
                 project=project,
@@ -207,7 +316,7 @@ def ingest_claude_memory(store: MemoryStore, base_path: Path | None = None) -> i
                 added += 1
         else:
             for heading, text in sections:
-                result = store.add(
+                result = store.upsert(
                     content=text,
                     source_file=str(md_file),
                     project=project,

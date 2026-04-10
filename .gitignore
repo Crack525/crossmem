@@ -11,3 +11,9 @@ build/
 .coverage
 demo/*
 !demo/demo.gif
+visuals/*
+!visuals/problem-solution.png
+blog/
+.vscode/
+.claude/
+.github/

@@ -43,8 +43,14 @@ class MemoryStore:
 
     def __init__(self, db_path: Path = DEFAULT_DB_PATH):
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(db_path))
+        self.db = sqlite3.connect(str(db_path), timeout=10)
         self.db.row_factory = sqlite3.Row
+        # WAL allows concurrent readers + one writer; upgrade silently
+        try:
+            self.db.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            pass  # locked by another connection — existing mode is fine
+        self.db.execute("PRAGMA busy_timeout=5000")
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -106,6 +112,45 @@ class MemoryStore:
             return cursor.lastrowid
         except sqlite3.IntegrityError:
             return None
+
+    def upsert(
+        self,
+        content: str,
+        source_file: str,
+        project: str,
+        section: str = "",
+    ) -> int | None:
+        """Add or update a memory. Matches on (project, section, source_file).
+
+        If a memory with the same key exists:
+        - Same content → no-op, returns None
+        - Different content → updates in place, returns existing id
+        If no match → inserts new, returns new id
+        """
+        row = self.db.execute(
+            """SELECT id, content FROM memories
+               WHERE project = ? AND section = ? AND source_file = ?""",
+            (project, section, source_file),
+        ).fetchone()
+
+        if row:
+            if row["content"] == content:
+                return None
+            content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+            try:
+                self.db.execute(
+                    """UPDATE memories
+                       SET content = ?, content_hash = ?
+                       WHERE id = ?""",
+                    (content, content_hash, row["id"]),
+                )
+                self.db.commit()
+                return row["id"]
+            except sqlite3.IntegrityError:
+                # New content_hash already exists for this project — treat as no-op
+                return None
+
+        return self.add(content, source_file, project, section)
 
     def search(self, query: str, limit: int = 10, project: str | None = None) -> list[SearchResult]:
         """Full-text search across all memories.

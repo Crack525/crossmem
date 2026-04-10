@@ -241,6 +241,50 @@ class TestGet:
         assert store.get(9999) is None
 
 
+class TestUpsert:
+    def test_inserts_new(self, store: MemoryStore) -> None:
+        result = store.upsert("content", "f.md", "proj", "Config")
+        assert result is not None
+        assert store.count() == 1
+
+    def test_skips_identical(self, store: MemoryStore) -> None:
+        store.upsert("content", "f.md", "proj", "Config")
+        result = store.upsert("content", "f.md", "proj", "Config")
+        assert result is None
+        assert store.count() == 1
+
+    def test_updates_changed_content(self, store: MemoryStore) -> None:
+        mid = store.upsert("old content", "f.md", "proj", "Config")
+        mid2 = store.upsert("new content", "f.md", "proj", "Config")
+        assert mid2 == mid
+        assert store.count() == 1
+        mem = store.get(mid)
+        assert mem.content == "new content"
+
+    def test_preserves_id_on_update(self, store: MemoryStore) -> None:
+        mid = store.upsert("v1", "init:README.md", "proj", "Arch")
+        mid2 = store.upsert("v2", "init:README.md", "proj", "Arch")
+        assert mid2 == mid
+
+    def test_different_section_is_separate(self, store: MemoryStore) -> None:
+        store.upsert("content a", "f.md", "proj", "Config")
+        store.upsert("content b", "f.md", "proj", "Security")
+        assert store.count() == 2
+
+    def test_different_source_same_content_deduped(self, store: MemoryStore) -> None:
+        store.upsert("content", "init:README.md", "proj", "Arch")
+        result = store.upsert("content", "init:CLAUDE.md", "proj", "Arch")
+        # Same content + project → deduped by content_hash constraint
+        assert result is None
+        assert store.count() == 1
+
+    def test_updates_fts_index(self, store: MemoryStore) -> None:
+        store.upsert("old searchable keyword", "f.md", "proj", "S")
+        store.upsert("new discoverable term", "f.md", "proj", "S")
+        assert len(store.search("old")) == 0
+        assert len(store.search("discoverable")) == 1
+
+
 class TestStats:
     def test_stats_by_project(self, store: MemoryStore) -> None:
         store.add("one", "f.md", "alpha")

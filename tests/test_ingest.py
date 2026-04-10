@@ -3,11 +3,15 @@
 from pathlib import Path
 
 from crossmem.ingest import (
+    derive_project_name,
     extract_gemini_project,
     extract_project_name,
+    find_project_docs,
+    has_project_docs,
     ingest_claude_memory,
     ingest_copilot_memory,
     ingest_gemini_memory,
+    ingest_project_docs,
     parse_markdown_sections,
 )
 from crossmem.store import MemoryStore
@@ -245,3 +249,166 @@ class TestIngestCopilotMemory:
         store = MemoryStore(db_path=tmp_path / "test.db")
         added = ingest_copilot_memory(store, base_path=mem_dir)
         assert added == 2
+
+
+class TestDeriveProjectName:
+    def test_uses_directory_name(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "my_project"
+        project_dir.mkdir()
+        assert derive_project_name(project_dir) == "my-project"
+
+    def test_lowercases_and_hyphenates(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "Backend_API"
+        project_dir.mkdir()
+        assert derive_project_name(project_dir) == "backend-api"
+
+
+class TestFindProjectDocs:
+    def test_finds_root_docs(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text("# My Project")
+        (tmp_path / "CLAUDE.md").write_text("# Rules")
+        docs = find_project_docs(tmp_path)
+        names = [d.name for d in docs]
+        assert "README.md" in names
+        assert "CLAUDE.md" in names
+
+    def test_finds_docs_subdir(self, tmp_path: Path) -> None:
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "ARCHITECTURE.md").write_text("# Architecture")
+        docs = find_project_docs(tmp_path)
+        assert len(docs) == 1
+        assert docs[0].name == "ARCHITECTURE.md"
+
+    def test_finds_github_copilot_instructions(self, tmp_path: Path) -> None:
+        gh_dir = tmp_path / ".github"
+        gh_dir.mkdir()
+        (gh_dir / "copilot-instructions.md").write_text(
+            "# Instructions for copilot"
+        )
+        docs = find_project_docs(tmp_path)
+        assert len(docs) == 1
+
+    def test_empty_dir_returns_empty(self, tmp_path: Path) -> None:
+        assert find_project_docs(tmp_path) == []
+
+    def test_ignores_non_doc_files(self, tmp_path: Path) -> None:
+        (tmp_path / "main.py").write_text("print('hello')")
+        (tmp_path / "random.md").write_text("# Not a doc file")
+        assert find_project_docs(tmp_path) == []
+
+
+class TestHasProjectDocs:
+    def test_true_when_readme_exists(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text("# Project")
+        assert has_project_docs(tmp_path) is True
+
+    def test_false_when_empty(self, tmp_path: Path) -> None:
+        assert has_project_docs(tmp_path) is False
+
+
+class TestIngestProjectDocs:
+    def test_ingests_readme_sections(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text(
+            "# My Project\nA cool project with lots of features.\n\n"
+            "# Architecture\nFastAPI backend with PostgreSQL database.\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_project_docs(store, tmp_path, project="my-project")
+        assert added == 2
+        memories = store.get_by_project("my-project")
+        sections = {m.section for m in memories}
+        assert "My Project" in sections
+        assert "Architecture" in sections
+
+    def test_uses_init_source_prefix(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text(
+            "# Setup\nInstall dependencies with pip install.\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        ingest_project_docs(store, tmp_path, project="test-proj")
+        memories = store.get_by_project("test-proj")
+        assert memories[0].source_file.startswith("init:")
+
+    def test_idempotent(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text(
+            "# Guide\nFollow these steps to get started with the project.\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        first = ingest_project_docs(store, tmp_path, project="proj")
+        second = ingest_project_docs(store, tmp_path, project="proj")
+        assert first == 1
+        assert second == 0
+
+    def test_no_docs_returns_zero(self, tmp_path: Path) -> None:
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_project_docs(store, tmp_path, project="empty")
+        assert added == 0
+
+    def test_scans_docs_subdir(self, tmp_path: Path) -> None:
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "ARCHITECTURE.md").write_text(
+            "# Overview\nMicroservices architecture with event-driven communication.\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_project_docs(store, tmp_path, project="my-svc")
+        assert added == 1
+        memories = store.get_by_project("my-svc")
+        assert memories[0].section == "Overview"
+
+    def test_multiple_doc_files(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text(
+            "# About\nThis is a Python library for data processing.\n"
+        )
+        (tmp_path / "CONTRIBUTING.md").write_text(
+            "# How to contribute\nFork the repo and submit a pull request.\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_project_docs(store, tmp_path, project="lib")
+        assert added == 2
+
+    def test_updates_on_content_change(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text(
+            "# Architecture\nFastAPI backend with PostgreSQL database.\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        first = ingest_project_docs(store, tmp_path, project="proj")
+        assert first == 1
+        assert store.count() == 1
+        old_mem = store.get_by_project("proj")[0]
+        old_id = old_mem.id
+
+        # Change content and re-run
+        (tmp_path / "README.md").write_text(
+            "# Architecture\nFastAPI backend with PostgreSQL and Redis caching.\n"
+        )
+        second = ingest_project_docs(store, tmp_path, project="proj")
+        assert second == 1  # updated, not skipped
+        assert store.count() == 1  # no duplicate
+        new_mem = store.get_by_project("proj")[0]
+        assert new_mem.id == old_id  # same ID preserved
+        assert "Redis" in new_mem.content
+
+    def test_no_duplicates_after_multiple_changes(self, tmp_path: Path) -> None:
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        for version in range(5):
+            (tmp_path / "README.md").write_text(
+                f"# Setup\nInstall version {version} of the package.\n"
+            )
+            ingest_project_docs(store, tmp_path, project="proj")
+        assert store.count() == 1
+        mem = store.get_by_project("proj")[0]
+        assert "version 4" in mem.content
+
+    def test_derives_project_name(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "cool_project"
+        project_dir.mkdir()
+        (project_dir / "README.md").write_text(
+            "# Cool\nA really cool project with many features.\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_project_docs(store, project_dir)
+        assert added == 1
+        memories = store.get_by_project("cool-project")
+        assert len(memories) == 1

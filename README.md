@@ -15,8 +15,6 @@ One search across all your Claude Code, GitHub Copilot, and Gemini CLI memories 
 
 You use AI coding assistants across multiple projects. Each project's memories are locked in a silo — and each tool has its own silo too. You solved credential masking in your backend API three months ago, but when you need it in a new microservice, your AI assistant starts from scratch.
 
-Here's what's happening under the hood:
-
 ```
 ~/.claude/projects/
 ├── backend-api/memory/MEMORY.md    ← Claude remembers here
@@ -31,58 +29,57 @@ Every project is a silo. Every tool is a silo. Knowledge doesn't compound — it
 ## The fix
 
 ```bash
-$ crossmem ingest
-Ingested: 42 memories across 4 projects (Claude Code + Gemini CLI)
-
-$ crossmem search "credential masking"
-Found 3 results for "credential masking":
-
-[1] backend-api / Security
-    Source: MEMORY.md
-    - Credentials masked in experience_memory before persisting (_mask_actions)...
-
-[2] mobile-app / Security
-    Source: MEMORY.md
-    - Credentials masked via _mask_context_credentials() + _mask_text()...
-
-[3] backend-api / Security
-    Source: GEMINI.md
-    - Credential masking pattern: _mask_actions for persistence, _mask_text for logs...
+pip install crossmem
+crossmem setup     # one-time: hooks + instructions + ingest
 ```
 
-Three results. Two projects. Two AI tools. One query. The pattern was already solved.
+That's it. Every Claude Code, Copilot, and Gemini session now starts with cross-project context — automatically. No per-project setup. New projects auto-initialize on first access.
+
+### What happens under the hood
+
+```
+cd ~/any-project
+claude                    # hook fires → auto-ingest → auto-init → recall
+```
+
+1. **Auto-ingest** — pulls new memories from Claude, Copilot, and Gemini native files
+2. **Auto-init** — first time in a project? Indexes README.md, CLAUDE.md, etc.
+3. **Tiered recall** — returns the most relevant context within a token budget:
+   curated memories → tool memories → CLAUDE.md → CONTRIBUTING.md → README.md
+
+Works on `startup`, `resume`, and `compact` — long sessions stay fresh.
 
 ### How crossmem differs
 
 - **vs Mem0** — Mem0 is cloud-based and requires an API key. crossmem is **local-only** with zero accounts.
 - **vs Basic Memory** — Basic Memory works within one tool. crossmem aggregates **across tools and projects**.
-- **vs grep** — crossmem parses multiple formats, deduplicates, and runs as an MCP server — your AI assistant queries it automatically at session start.
-
-## Install
-
-```bash
-pip install crossmem
-# or
-uv pip install crossmem
-```
+- **vs grep** — crossmem parses multiple formats, deduplicates, and runs as an MCP server — your AI assistant queries it automatically.
 
 ## Quick start
 
 ```bash
-pip install crossmem        # 1. Install
-crossmem ingest             # 2. Index all your AI memories
-crossmem search "retry"     # 3. Search across every project
+pip install crossmem      # 1. Install (or: uv pip install crossmem)
+crossmem setup            # 2. One command: hooks + instructions + ingest
 ```
 
-That's it. Three commands, zero config. crossmem finds Claude Code and Gemini CLI memory files automatically.
+Done. Every AI coding session now has cross-project memory.
 
-To give your AI tools direct access, add the MCP server to your config (see [MCP Server](#mcp-server) below) — then `mem_recall()` and `mem_search()` just work inside your coding sessions.
+`setup` runs three things:
+- **install-hook** — Claude Code SessionStart hook (fires on startup, resume, compact)
+- **install-instructions** — Copilot + Gemini config files (prompts `mem_recall()` at session start and after compaction)
+- **ingest** — pulls existing memories from all tools into the crossmem DB
+
+To also enable MCP tools (search, save, update), add the MCP server to your config (see [MCP Server](#mcp-server) below).
 
 ## Usage
 
 ```bash
-# Ingest Claude Code + Gemini CLI memories
-crossmem ingest
+# One-time setup (hook + instructions + ingest)
+crossmem setup
+
+# Recall memories for current project (runs automatically via hook)
+crossmem recall                  # auto-detects project from cwd
+crossmem recall -p backend-api   # explicit project
 
 # Search across every project
 crossmem search "JWT token rotation"
@@ -101,13 +98,21 @@ crossmem forget 42                   # delete memory #42 (with confirmation)
 crossmem forget -p old-app           # delete all memories for a project
 crossmem forget 42 --confirm         # skip confirmation prompt
 
-# Sync Claude memories → Gemini CLI
-crossmem sync                        # sync everything
-crossmem sync -p backend-api        # sync one project + shared patterns
+# Index project documentation manually (usually auto-detected)
+crossmem init                        # current directory
+crossmem init -p my-api              # explicit project name
+crossmem init --path ~/projects/api  # different directory
 
-# Watch for changes and auto-sync
-crossmem sync-watch                  # polls every 30s
-crossmem sync-watch --interval 10    # custom interval
+# Re-ingest tool memories manually
+crossmem ingest
+
+# Auto-load memories at Claude Code session start
+crossmem install-hook            # one-time setup (included in setup)
+crossmem install-hook --uninstall  # remove the hook
+
+# Add mem_recall instruction to Copilot + Gemini configs
+crossmem install-instructions        # per-project for Copilot, global for Gemini
+crossmem install-instructions --uninstall
 
 # Visualize the knowledge graph
 crossmem graph
@@ -116,13 +121,24 @@ crossmem graph
 crossmem stats
 ```
 
+### Legacy commands
+
+These still work but are deprecated — MCP + auto-ingest handle this automatically now.
+
+```bash
+crossmem sync                        # one-way Claude → Gemini file sync
+crossmem sync -p backend-api        # sync one project
+crossmem sync-watch                  # polls every 30s
+```
+
 ## How it works
 
-1. **Ingest** — Finds Claude Code and Gemini CLI memory files automatically, splits into chunks, deduplicates
-2. **Index** — Stores everything locally in SQLite — no cloud, no API keys, no accounts
-3. **Search** — Full-text search with stemming. Multi-word queries use AND logic; quoted phrases for exact matches
-4. **Learn** — AI tools save new discoveries via `mem_save` during sessions. Knowledge compounds automatically
-5. **Sync** — One-way sync from Claude → Gemini, preserving each tool's own memories
+1. **Auto-ingest** — Every recall pulls the latest memories from Claude Code, Copilot, and Gemini CLI native files
+2. **Auto-init** — First access to a new project? crossmem finds README.md, CLAUDE.md, etc. and indexes them automatically
+3. **Index** — Stores everything locally in SQLite — no cloud, no API keys, no accounts
+4. **Tiered recall** — Returns the most relevant context within a token budget: curated > tool memories > CLAUDE.md > CONTRIBUTING.md > README.md
+5. **Search** — Full-text search with stemming. Multi-word queries use AND logic; quoted phrases for exact matches
+6. **Learn** — AI tools save new discoveries via `mem_save` during sessions. Knowledge compounds automatically
 
 ## How it works with your AI tools
 
@@ -187,6 +203,8 @@ Add to your tool's MCP config:
 ```
 
 > **Note:** For Claude Code and Gemini CLI, if `crossmem-server` isn't on PATH, use the same `uvx` command shown in the Copilot config above.
+>
+> **Note:** `install-instructions` writes to `.github/copilot-instructions.md` in the **current project** (not global). Run `crossmem setup` from each project, or add it to your project template. Gemini instructions are global (`~/.gemini/GEMINI.md`).
 
 ### Tools
 
@@ -198,6 +216,7 @@ Add to your tool's MCP config:
 | `mem_update` | Update a memory in place — preserves ID, optionally moves section/project |
 | `mem_forget` | Delete a memory by ID (find IDs via `mem_search`) |
 | `mem_get` | Get the full content of a memory by ID (search results are truncated) |
+| `mem_init` | Index project documentation files (README, CLAUDE.md, etc.) for cross-tool recall |
 | `mem_ingest` | Refresh the index when memory files change (auto-runs on server startup) |
 
 ### Start manually
@@ -205,6 +224,24 @@ Add to your tool's MCP config:
 ```bash
 crossmem serve    # starts MCP server on stdio (same as crossmem-server)
 ```
+
+## Auto-recall (Claude Code hook)
+
+The MCP server requires the LLM to decide when to call `mem_recall`. With auto-recall, memories are injected **deterministically** — no LLM decision needed.
+
+```bash
+crossmem setup           # installs hook + instructions + ingest (recommended)
+crossmem install-hook    # or install just the hook
+```
+
+This adds a `SessionStart` hook to `~/.claude/settings.json` that runs `crossmem recall` on:
+- **startup** — new session
+- **resume** — returning to an existing session
+- **compact** — context window compaction mid-session
+
+Each recall auto-ingests the latest native memories from all tools, so long sessions stay fresh.
+
+To remove: `crossmem install-hook --uninstall`
 
 ## Supported tools
 
