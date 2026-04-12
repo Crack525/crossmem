@@ -14,6 +14,7 @@ from crossmem.cli import (
     _claude_settings_path,
     _copilot_global_path,
     _inject_copilot_block,
+    _parse_block_timestamp,
     _source_tier,
     _strip_copilot_block,
     main,
@@ -725,6 +726,15 @@ class TestInstallHookCopilot:
         assert result.exit_code == 0
         assert settings_path.exists()
 
+    def test_if_stale_with_claude_emits_warning(self, tmp_path: Path) -> None:
+        """--if-stale is a copilot-only option; warn when used with --tool claude."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        runner = CliRunner()
+        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+            result = runner.invoke(main, ["install-hook", "--tool", "claude", "--if-stale"])
+        assert result.exit_code == 0
+        assert "Warning" in result.output
+
 
 class TestRecallFormatCopilot:
     """Tests for recall --format copilot."""
@@ -754,6 +764,143 @@ class TestRecallFormatCopilot:
         assert result.exit_code == 0
         assert COPILOT_CONTENT_MARKER_START not in result.output
         assert COPILOT_CONTENT_MARKER_END not in result.output
+
+
+class TestParseBlockTimestamp:
+    """Tests for _parse_block_timestamp()."""
+
+    def test_parses_iso_timestamp(self) -> None:
+        from crossmem.cli import _parse_block_timestamp
+        import datetime
+        content = f"{COPILOT_CONTENT_MARKER_START} 2026-04-12T14:32:07 — regenerate: ...\ncontent\n{COPILOT_CONTENT_MARKER_END}"
+        ts = _parse_block_timestamp(content)
+        assert ts == datetime.datetime(2026, 4, 12, 14, 32, 7)
+
+    def test_returns_none_for_date_only_header(self) -> None:
+        """Old-format date-only block returns None — treated as stale."""
+        from crossmem.cli import _parse_block_timestamp
+        content = f"{COPILOT_CONTENT_MARKER_START} 2026-04-12 — regenerate: ...\ncontent\n{COPILOT_CONTENT_MARKER_END}"
+        assert _parse_block_timestamp(content) is None
+
+    def test_returns_none_when_no_block(self) -> None:
+        from crossmem.cli import _parse_block_timestamp
+        assert _parse_block_timestamp("# No markers here") is None
+
+    def test_build_block_now_contains_time_component(self) -> None:
+        """_build_copilot_block should now embed a full ISO timestamp."""
+        block = _build_copilot_block("content")
+        # Should match YYYY-MM-DDTHH:MM:SS — has a T separator
+        assert "T" in block.split("\n")[0]
+
+
+class TestIfStale:
+    """Tests for --if-stale / --max-age staleness check."""
+
+    FAKE_RECALL = "# crossmem: myproject\n- pattern\n"
+
+    def _block_with_age(self, minutes_ago: float) -> str:
+        import datetime
+        ts = (datetime.datetime.now() - datetime.timedelta(minutes=minutes_ago)).isoformat(timespec="seconds")
+        return (
+            f"{COPILOT_CONTENT_MARKER_START} {ts} — regenerate: crossmem install-hook --tool copilot -->\n"
+            "old content\n"
+            f"{COPILOT_CONTENT_MARKER_END}\n"
+        )
+
+    def test_fresh_block_skips_silently(self, tmp_path: Path) -> None:
+        """Block injected 5 min ago with --max-age 30 should produce no output."""
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        copilot_path.parent.mkdir(parents=True)
+        copilot_path.write_text(self._block_with_age(5))
+
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot", "--if-stale", "--max-age", "30"]
+            )
+
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+        # File not changed — still has old content
+        assert "old content" in copilot_path.read_text()
+
+    def test_stale_block_triggers_refresh(self, tmp_path: Path) -> None:
+        """Block injected 60 min ago with --max-age 30 should re-inject."""
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        copilot_path.parent.mkdir(parents=True)
+        copilot_path.write_text(self._block_with_age(60))
+
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot", "--if-stale", "--max-age", "30"]
+            )
+
+        assert result.exit_code == 0
+        assert "Injected" in result.output
+        assert "old content" not in copilot_path.read_text()
+
+    def test_missing_block_triggers_inject(self, tmp_path: Path) -> None:
+        """No existing block with --if-stale should inject (first run)."""
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot", "--if-stale"]
+            )
+
+        assert result.exit_code == 0
+        assert "Injected" in result.output
+
+    def test_old_date_only_block_treated_as_stale(self, tmp_path: Path) -> None:
+        """Block with old date-only header (pre-P3) has no parseable timestamp, treated as stale."""
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        copilot_path.parent.mkdir(parents=True)
+        old_block = (
+            f"{COPILOT_CONTENT_MARKER_START} 2026-04-12 — regenerate: ...\n"
+            "old content\n"
+            f"{COPILOT_CONTENT_MARKER_END}\n"
+        )
+        copilot_path.write_text(old_block)
+
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot", "--if-stale"]
+            )
+
+        assert result.exit_code == 0
+        assert "Injected" in result.output
+
+    def test_without_if_stale_always_reinjects(self, tmp_path: Path) -> None:
+        """Normal (non-stale-check) invocation always re-injects regardless of age."""
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        copilot_path.parent.mkdir(parents=True)
+        copilot_path.write_text(self._block_with_age(1))
+
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot"]
+            )
+
+        assert result.exit_code == 0
+        # Either injected or "already up to date" (content may be identical), never silent
+        assert result.output.strip() != ""
 
 
 class TestSetup:

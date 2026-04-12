@@ -4,6 +4,7 @@ import datetime
 import json
 import os
 import platform
+import re
 import shutil
 from pathlib import Path
 
@@ -511,13 +512,27 @@ def _copilot_global_path() -> Path:
 
 def _build_copilot_block(output: str) -> str:
     """Wrap recalled output in Copilot auto-injection markers."""
-    date = datetime.date.today().isoformat()
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
     return (
-        f"{COPILOT_CONTENT_MARKER_START} {date} "
+        f"{COPILOT_CONTENT_MARKER_START} {ts} "
         f"— regenerate: crossmem install-hook --tool copilot -->\n"
         f"{output}\n"
         f"{COPILOT_CONTENT_MARKER_END}\n"
     )
+
+
+def _parse_block_timestamp(content: str) -> datetime.datetime | None:
+    """Extract the ISO timestamp from a crossmem block header, or None if absent/unparseable."""
+    m = re.search(
+        r"<!-- crossmem:auto-injected (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})",
+        content,
+    )
+    if not m:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(m.group(1))
+    except ValueError:
+        return None
 
 
 def _strip_copilot_block(content: str) -> str:
@@ -745,6 +760,16 @@ def install_instructions(uninstall: bool, dry_run: bool) -> None:
 @click.option("-p", "--project", default=None, help="[copilot only] Project name (auto-detected)")
 @click.option("-n", "--limit", default=30, help="[copilot only] Max memories to inject")
 @click.option("--budget", default=2000, help="[copilot only] Max injected content size in characters")
+@click.option(
+    "--if-stale",
+    is_flag=True,
+    help="[copilot only] Only re-inject if existing block is older than --max-age minutes",
+)
+@click.option(
+    "--max-age",
+    default=30,
+    help="[copilot only] Block age in minutes before --if-stale triggers a refresh (default: 30)",
+)
 def install_hook(
     uninstall: bool,
     dry_run: bool,
@@ -753,6 +778,8 @@ def install_hook(
     project: str | None,
     limit: int,
     budget: int,
+    if_stale: bool,
+    max_age: int,
 ) -> None:
     """Add a SessionStart hook to Claude Code settings, or inject context for Copilot.
 
@@ -770,11 +797,27 @@ def install_hook(
             crossmem install-hook --tool copilot               # workspace
             crossmem install-hook --tool copilot --global      # all workspaces
             crossmem install-hook --tool copilot --uninstall   # remove block
+
+        Stale-check (for cron / shell precmd / launchd):
+            crossmem install-hook --tool copilot --if-stale            # refresh if >30 min old
+            crossmem install-hook --tool copilot --if-stale --max-age 60  # custom threshold
+            # Exits silently (no output) when block is fresh.
     """
+    if tool == "claude" and (if_stale or max_age != 30):
+        click.echo("Warning: --if-stale and --max-age are only used with --tool copilot.")
     if tool == "copilot":
-        _install_hook_copilot(uninstall, dry_run, global_, project, limit, budget)
+        _install_hook_copilot(
+            uninstall=uninstall,
+            dry_run=dry_run,
+            global_=global_,
+            project=project,
+            limit=limit,
+            budget=budget,
+            if_stale=if_stale,
+            max_age=max_age,
+        )
     else:
-        _install_hook_claude(uninstall, dry_run)
+        _install_hook_claude(uninstall=uninstall, dry_run=dry_run)
 
 
 def _install_hook_claude(uninstall: bool, dry_run: bool) -> None:
@@ -850,6 +893,8 @@ def _install_hook_copilot(
     project: str | None,
     limit: int,
     budget: int,
+    if_stale: bool = False,
+    max_age: int = 30,
 ) -> None:
     """Inject recalled memories into Copilot instructions file.
 
@@ -877,6 +922,16 @@ def _install_hook_copilot(
         target.write_text((cleaned + "\n") if cleaned else "", encoding="utf-8")
         click.echo(f"Removed crossmem block from {target}")
         return
+
+    if if_stale and not uninstall:
+        existing_text = target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
+        if COPILOT_CONTENT_MARKER_START in existing_text:
+            ts = _parse_block_timestamp(existing_text)
+            if ts is not None:
+                age_minutes = (datetime.datetime.now() - ts).total_seconds() / 60
+                if age_minutes < max_age:
+                    # Fresh — skip silently
+                    return
 
     output = _get_recall_content(project, limit, budget)
     if output is None:
