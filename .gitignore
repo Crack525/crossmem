@@ -13,6 +13,8 @@ demo/*
 !demo/demo.gif
 visuals/*
 !visuals/problem-solution.png
+!visuals/logo.svg
+!visuals/icon.svg
 blog/
 .vscode/
 .claude/
