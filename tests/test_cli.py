@@ -6,7 +6,18 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from crossmem.cli import INSTRUCTION_MARKER, _source_tier, main
+from crossmem.cli import (
+    COPILOT_CONTENT_MARKER_END,
+    COPILOT_CONTENT_MARKER_START,
+    INSTRUCTION_MARKER,
+    _build_copilot_block,
+    _claude_settings_path,
+    _copilot_global_path,
+    _inject_copilot_block,
+    _source_tier,
+    _strip_copilot_block,
+    main,
+)
 from crossmem.store import MemoryStore
 
 
@@ -418,6 +429,7 @@ class TestInstallHook:
 
 class TestInstallInstructions:
     def test_adds_to_copilot_instructions(self, tmp_path: Path) -> None:
+        """install-instructions no longer writes Copilot — use install-hook --tool copilot."""
         copilot_path = tmp_path / ".github" / "copilot-instructions.md"
 
         runner = CliRunner()
@@ -428,12 +440,11 @@ class TestInstallInstructions:
             result = runner.invoke(main, ["install-instructions"])
 
         assert result.exit_code == 0
-        assert "Added" in result.output
-        assert copilot_path.exists()
-        assert INSTRUCTION_MARKER in copilot_path.read_text()
-        assert "mem_recall" in copilot_path.read_text()
+        # Copilot file is NOT written — use install-hook --tool copilot instead
+        assert not copilot_path.exists()
 
     def test_preserves_existing_content(self, tmp_path: Path) -> None:
+        """install-instructions only touches Gemini; existing Copilot content is untouched."""
         copilot_path = tmp_path / ".github" / "copilot-instructions.md"
         copilot_path.parent.mkdir(parents=True)
         copilot_path.write_text("# Existing rules\nAlways use TypeScript.\n")
@@ -446,12 +457,14 @@ class TestInstallInstructions:
             result = runner.invoke(main, ["install-instructions"])
 
         assert result.exit_code == 0
+        # Copilot file is unchanged
         content = copilot_path.read_text()
         assert "Existing rules" in content
         assert "TypeScript" in content
-        assert "mem_recall" in content
+        assert "mem_recall" not in content
 
     def test_idempotent(self, tmp_path: Path) -> None:
+        """Running install-instructions twice on Gemini is idempotent."""
         runner = CliRunner()
         with (
             patch("crossmem.cli.Path.cwd", return_value=tmp_path),
@@ -464,7 +477,7 @@ class TestInstallInstructions:
         assert "already present" in result.output
 
     def test_uninstall(self, tmp_path: Path) -> None:
-        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        gemini_path = tmp_path / ".gemini" / "GEMINI.md"
 
         runner = CliRunner()
         with (
@@ -476,10 +489,10 @@ class TestInstallInstructions:
 
         assert result.exit_code == 0
         assert "Removed" in result.output
-        assert INSTRUCTION_MARKER not in copilot_path.read_text()
+        assert INSTRUCTION_MARKER not in gemini_path.read_text()
 
     def test_dry_run(self, tmp_path: Path) -> None:
-        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        gemini_path = tmp_path / ".gemini" / "GEMINI.md"
 
         runner = CliRunner()
         with (
@@ -490,7 +503,7 @@ class TestInstallInstructions:
 
         assert result.exit_code == 0
         assert "would add" in result.output
-        assert not copilot_path.exists()
+        assert not gemini_path.exists()
 
     def test_adds_to_gemini(self, tmp_path: Path) -> None:
         gemini_path = tmp_path / ".gemini" / "GEMINI.md"
@@ -505,6 +518,327 @@ class TestInstallInstructions:
         assert result.exit_code == 0
         assert gemini_path.exists()
         assert "mem_recall" in gemini_path.read_text()
+
+
+class TestCopilotHookHelpers:
+    """Unit tests for Copilot block helpers (_strip, _build, _inject, _path)."""
+
+    def test_build_copilot_block_contains_markers(self) -> None:
+        block = _build_copilot_block("# crossmem: myproject\n- some memory")
+        assert COPILOT_CONTENT_MARKER_START in block
+        assert COPILOT_CONTENT_MARKER_END in block
+        assert "some memory" in block
+
+    def test_build_copilot_block_contains_date(self) -> None:
+        import datetime
+        block = _build_copilot_block("content")
+        assert datetime.date.today().isoformat() in block
+
+    def test_strip_copilot_block_removes_injected_section(self) -> None:
+        content = (
+            "# Human content\n\n"
+            f"{COPILOT_CONTENT_MARKER_START} 2026-04-12 -->\n"
+            "injected line\n"
+            f"{COPILOT_CONTENT_MARKER_END}\n"
+        )
+        result = _strip_copilot_block(content)
+        assert "Human content" in result
+        assert "injected line" not in result
+        assert COPILOT_CONTENT_MARKER_START not in result
+        assert COPILOT_CONTENT_MARKER_END not in result
+
+    def test_strip_copilot_block_no_marker_returns_unchanged(self) -> None:
+        content = "# Just human content\nNo markers here.\n"
+        result = _strip_copilot_block(content)
+        assert "Just human content" in result
+
+    def test_inject_copilot_block_appends_when_no_marker(self, tmp_path: Path) -> None:
+        target = tmp_path / "copilot-instructions.md"
+        target.write_text("# Existing\nKeep this.\n")
+        block = _build_copilot_block("new memory")
+        changed = _inject_copilot_block(target, block, dry_run=False)
+        assert changed is True
+        written = target.read_text()
+        assert "Keep this" in written
+        assert "new memory" in written
+
+    def test_inject_copilot_block_replaces_existing_block(self, tmp_path: Path) -> None:
+        target = tmp_path / "copilot-instructions.md"
+        first_block = _build_copilot_block("old memory")
+        target.write_text("# Existing\n\n" + first_block)
+        second_block = _build_copilot_block("new memory")
+        _inject_copilot_block(target, second_block, dry_run=False)
+        written = target.read_text()
+        assert "old memory" not in written
+        assert "new memory" in written
+        assert "Existing" in written
+        # Only one copy of the end marker
+        assert written.count(COPILOT_CONTENT_MARKER_END) == 1
+
+    def test_inject_copilot_block_idempotent(self, tmp_path: Path) -> None:
+        target = tmp_path / "copilot-instructions.md"
+        block = _build_copilot_block("same memory")
+        _inject_copilot_block(target, block, dry_run=False)
+        first = target.read_text()
+        changed = _inject_copilot_block(target, block, dry_run=False)
+        second = target.read_text()
+        # Content is the same; changed flag may be False on identical block
+        assert first == second
+
+    def test_inject_copilot_block_dry_run_does_not_write(self, tmp_path: Path) -> None:
+        target = tmp_path / "copilot-instructions.md"
+        block = _build_copilot_block("memory")
+        changed = _inject_copilot_block(target, block, dry_run=True)
+        assert changed is True
+        assert not target.exists()
+
+    def test_inject_copilot_block_creates_parent_dirs(self, tmp_path: Path) -> None:
+        target = tmp_path / ".github" / "copilot-instructions.md"
+        block = _build_copilot_block("memory")
+        _inject_copilot_block(target, block, dry_run=False)
+        assert target.exists()
+
+    def test_copilot_global_path_is_absolute(self) -> None:
+        path = _copilot_global_path()
+        assert path.is_absolute()
+        assert "copilot-instructions.md" in str(path)
+
+    def test_copilot_global_path_platform_branches(self) -> None:
+        import platform as _platform
+        system = _platform.system()
+        path = _copilot_global_path()
+        if system == "Darwin":
+            assert "Application Support" in str(path)
+        elif system == "Windows":
+            assert "Code" in str(path)
+        else:
+            assert ".config" in str(path)
+
+
+class TestInstallHookCopilot:
+    """Integration tests for install-hook --tool copilot."""
+
+    FAKE_RECALL = "# crossmem: myproject\n- use retry with backoff\n"
+
+    def test_workspace_injection(self, tmp_path: Path) -> None:
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot"])
+
+        assert result.exit_code == 0
+        assert "Injected" in result.output
+        assert copilot_path.exists()
+        content = copilot_path.read_text()
+        assert COPILOT_CONTENT_MARKER_START in content
+        assert COPILOT_CONTENT_MARKER_END in content
+
+    def test_workspace_injection_idempotent(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            runner.invoke(main, ["install-hook", "--tool", "copilot"])
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot"])
+
+        assert result.exit_code == 0
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        assert copilot_path.read_text().count(COPILOT_CONTENT_MARKER_END) == 1
+
+    def test_workspace_dry_run_does_not_write(self, tmp_path: Path) -> None:
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot", "--dry-run"])
+
+        assert result.exit_code == 0
+        assert "Would write" in result.output
+        assert not copilot_path.exists()
+
+    def test_no_memories_prints_message(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=None),
+        ):
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot"])
+
+        assert result.exit_code == 0
+        assert "No memories" in result.output
+
+    def test_uninstall_removes_block(self, tmp_path: Path) -> None:
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        copilot_path.parent.mkdir(parents=True)
+        block = _build_copilot_block("injected memory")
+        copilot_path.write_text("# Keep this\n\n" + block)
+
+        runner = CliRunner()
+        with patch("crossmem.cli.Path.cwd", return_value=tmp_path):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot", "--uninstall"]
+            )
+
+        assert result.exit_code == 0
+        assert "Removed" in result.output
+        content = copilot_path.read_text()
+        assert "Keep this" in content
+        assert COPILOT_CONTENT_MARKER_START not in content
+
+    def test_uninstall_no_block_reports_not_found(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with patch("crossmem.cli.Path.cwd", return_value=tmp_path):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot", "--uninstall"]
+            )
+        assert result.exit_code == 0
+        assert "No crossmem block found" in result.output
+
+    def test_global_flag_targets_user_path(self, tmp_path: Path) -> None:
+        fake_global = tmp_path / "prompts" / "copilot-instructions.md"
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli._copilot_global_path", return_value=fake_global),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+        ):
+            result = runner.invoke(
+                main, ["install-hook", "--tool", "copilot", "--global"]
+            )
+
+        assert result.exit_code == 0
+        assert fake_global.exists()
+        assert COPILOT_CONTENT_MARKER_START in fake_global.read_text()
+
+    def test_claude_default_still_works(self, tmp_path: Path) -> None:
+        """Existing --tool claude (default) behavior is unchanged."""
+        settings_path = tmp_path / ".claude" / "settings.json"
+        runner = CliRunner()
+        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+            result = runner.invoke(main, ["install-hook"])
+        assert result.exit_code == 0
+        assert settings_path.exists()
+
+
+class TestRecallFormatCopilot:
+    """Tests for recall --format copilot."""
+
+    FAKE_RECALL = "# crossmem: myproject\n- use fastapi\n"
+
+    def test_format_copilot_wraps_in_markers(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(main, ["recall", "--format", "copilot"])
+
+        assert result.exit_code == 0
+        assert COPILOT_CONTENT_MARKER_START in result.output
+        assert COPILOT_CONTENT_MARKER_END in result.output
+
+    def test_format_text_default_no_markers(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+        ):
+            result = runner.invoke(main, ["recall"])
+
+        assert result.exit_code == 0
+        assert COPILOT_CONTENT_MARKER_START not in result.output
+        assert COPILOT_CONTENT_MARKER_END not in result.output
+
+
+class TestSetup:
+    """Tests for the setup command (4-step orchestration)."""
+
+    def test_setup_runs_all_four_steps(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli._claude_settings_path",
+                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.cli.MemoryStore"),
+        ):
+            result = runner.invoke(main, ["setup"])
+
+        assert result.exit_code == 0
+        assert "Claude Code hook" in result.output
+        assert "Copilot instructions" in result.output
+        assert "Gemini instructions" in result.output
+        assert "Ingesting" in result.output
+        assert "Done" in result.output
+
+    def test_setup_installs_claude_hook(self, tmp_path: Path) -> None:
+        settings_path = tmp_path / ".claude" / "settings.json"
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.cli.MemoryStore"),
+        ):
+            runner.invoke(main, ["setup"])
+
+        assert settings_path.exists()
+
+    def test_setup_injects_copilot_block(self, tmp_path: Path) -> None:
+        copilot_path = tmp_path / ".github" / "copilot-instructions.md"
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli._claude_settings_path",
+                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.cli.MemoryStore"),
+        ):
+            runner.invoke(main, ["setup"])
+
+        assert copilot_path.exists()
+        assert COPILOT_CONTENT_MARKER_START in copilot_path.read_text()
+
+    def test_setup_writes_gemini_instructions(self, tmp_path: Path) -> None:
+        gemini_path = tmp_path / ".gemini" / "GEMINI.md"
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli._claude_settings_path",
+                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.cli.MemoryStore"),
+        ):
+            runner.invoke(main, ["setup"])
+
+        assert gemini_path.exists()
+        assert "mem_recall" in gemini_path.read_text()
+
+    def test_setup_no_memories_copilot_step_graceful(self, tmp_path: Path) -> None:
+        """setup should not fail if no memories exist yet (Copilot step skipped)."""
+        runner = CliRunner()
+        with (
+            patch("crossmem.cli._claude_settings_path",
+                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.cli._get_recall_content", return_value=None),
+            patch("crossmem.cli.MemoryStore"),
+        ):
+            result = runner.invoke(main, ["setup"])
+
+        assert result.exit_code == 0
+        assert "Done" in result.output
 
 
 class TestInit:

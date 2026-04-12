@@ -1,7 +1,9 @@
 """CLI interface for crossmem."""
 
+import datetime
 import json
 import os
+import platform
 import shutil
 from pathlib import Path
 
@@ -220,26 +222,26 @@ def sync_watch(interval: int, project: str | None) -> None:
 def setup(ctx: click.Context) -> None:
     """One-time setup: hook + instructions + ingest.
 
-    Runs install-hook (Claude Code), install-instructions (Copilot + Gemini),
-    and ingest (pull existing memories) in one command.
+    Runs install-hook (Claude Code), install-hook --tool copilot (workspace),
+    install-instructions (Gemini), and ingest (pull existing memories).
     """
     click.echo("Setting up crossmem...\n")
 
     click.echo("1. Claude Code hook")
-    ctx.invoke(install_hook)
+    ctx.invoke(install_hook, tool="claude", uninstall=False, dry_run=False,
+               global_=False, project=None)
     click.echo()
 
-    click.echo("2. Copilot + Gemini instructions")
-    ctx.invoke(install_instructions)
-    copilot_path = Path.cwd() / ".github" / "copilot-instructions.md"
-    if not copilot_path.parent.exists():
-        click.echo(
-            "  ⚠ No .github/ directory here — Copilot instructions were "
-            "created but you may want to re-run from a project root."
-        )
+    click.echo("2. Copilot instructions (workspace)")
+    ctx.invoke(install_hook, tool="copilot", uninstall=False, dry_run=False,
+               global_=False, project=None)
     click.echo()
 
-    click.echo("3. Ingesting existing memories")
+    click.echo("3. Gemini instructions")
+    ctx.invoke(install_instructions, uninstall=False, dry_run=False)
+    click.echo()
+
+    click.echo("4. Ingesting existing memories")
     ctx.invoke(ingest)
     click.echo()
 
@@ -396,7 +398,13 @@ def _build_recall_output(
 @click.option("-p", "--project", default=None, help="Project name (auto-detected from cwd)")
 @click.option("-n", "--limit", default=30, help="Max memories to fetch from DB")
 @click.option("--budget", default=2000, help="Max output size in characters")
-def recall(project: str | None, limit: int, budget: int) -> None:
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["text", "copilot"], case_sensitive=False),
+    default="text",
+    help="Output format: text (default) or copilot (wraps in injection markers)",
+)
+def recall(project: str | None, limit: int, budget: int, fmt: str) -> None:
     """Recall memories for the current project (for use as a hook).
 
     Outputs project memories and cross-project patterns as text,
@@ -407,6 +415,9 @@ def recall(project: str | None, limit: int, budget: int) -> None:
       3. Project docs (CLAUDE.md > CONTRIBUTING.md > README.md)
       4. Cross-project patterns
 
+    Use --format copilot to wrap output in auto-injection markers
+    (for piping into .github/copilot-instructions.md).
+
     Designed to be used as a Claude Code SessionStart hook:
 
         crossmem install-hook
@@ -416,56 +427,15 @@ def recall(project: str | None, limit: int, budget: int) -> None:
         crossmem recall
         crossmem recall -p backend-api
         crossmem recall --budget 4000
+        crossmem recall --format copilot
     """
-    from crossmem.ingest import (
-        derive_project_name,
-        ingest_claude_memory,
-        ingest_copilot_memory,
-        ingest_gemini_memory,
-    )
-    from crossmem.server import resolve_project
-
-    store = MemoryStore()
-    try:
-        # Auto-ingest native memories on every recall (startup, resume, compact)
-        ingest_claude_memory(store)
-        ingest_copilot_memory(store)
-        ingest_gemini_memory(store)
-
-        cwd = os.getcwd()
-        project_dir = Path(cwd)
-
-        if not project:
-            known = store.list_projects()
-            project = resolve_project(cwd, known)
-            if not project:
-                if has_project_docs(project_dir):
-                    project = derive_project_name(project_dir)
-                    ingest_project_docs(store, project_dir, project=project)
-                else:
-                    return
-
-        project_memories = store.get_by_project(project, limit=limit)
-        shared_memories = store.get_shared_sections(
-            project, limit=min(limit, 10)
-        )
-
-        if not project_memories and not shared_memories:
-            if has_project_docs(project_dir):
-                ingest_project_docs(store, project_dir, project=project)
-                project_memories = store.get_by_project(project, limit=limit)
-                shared_memories = store.get_shared_sections(
-                    project, limit=min(limit, 10)
-                )
-            if not project_memories and not shared_memories:
-                return
-
-        output = _build_recall_output(
-            project, project_memories, shared_memories, budget
-        )
+    output = _get_recall_content(project, limit, budget)
+    if output is None:
+        return
+    if fmt == "copilot":
+        click.echo(_build_copilot_block(output))
+    else:
         click.echo(output)
-    finally:
-        store.close()
 
 
 def _find_crossmem_bin() -> str:
@@ -514,6 +484,132 @@ INSTRUCTION_LINE = (
     "call mem_recall() to load cross-project context from crossmem."
 )
 INSTRUCTION_MARKER = "<!-- crossmem-instruction -->"
+
+COPILOT_CONTENT_MARKER_START = "<!-- crossmem:auto-injected"
+COPILOT_CONTENT_MARKER_END = "<!-- crossmem:end -->"
+
+
+def _copilot_global_path() -> Path:
+    """Return platform-appropriate VS Code global Copilot instructions path."""
+    system = platform.system()
+    if system == "Windows":
+        appdata = os.environ.get("APPDATA", "")
+        return Path(appdata) / "Code" / "User" / "prompts" / "copilot-instructions.md"
+    elif system == "Darwin":
+        return (
+            Path.home()
+            / "Library"
+            / "Application Support"
+            / "Code"
+            / "User"
+            / "prompts"
+            / "copilot-instructions.md"
+        )
+    else:  # Linux
+        return Path.home() / ".config" / "Code" / "User" / "prompts" / "copilot-instructions.md"
+
+
+def _build_copilot_block(output: str) -> str:
+    """Wrap recalled output in Copilot auto-injection markers."""
+    date = datetime.date.today().isoformat()
+    return (
+        f"{COPILOT_CONTENT_MARKER_START} {date} "
+        f"— regenerate: crossmem install-hook --tool copilot -->\n"
+        f"{output}\n"
+        f"{COPILOT_CONTENT_MARKER_END}\n"
+    )
+
+
+def _strip_copilot_block(content: str) -> str:
+    """Remove the crossmem auto-injected block from content, returning cleaned text."""
+    lines = content.split("\n")
+    result = []
+    inside_block = False
+    for line in lines:
+        if COPILOT_CONTENT_MARKER_START in line:
+            inside_block = True
+            continue
+        if inside_block and COPILOT_CONTENT_MARKER_END in line:
+            inside_block = False
+            continue
+        if not inside_block:
+            result.append(line)
+    return "\n".join(result).rstrip()
+
+
+def _inject_copilot_block(path: Path, block: str, dry_run: bool) -> bool:
+    """Write block into path using marker-based replacement.
+
+    Replaces the existing auto-injected block if present, otherwise appends.
+    Returns True if the file was changed (or would be changed in dry-run).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing = ""
+    if path.exists():
+        existing = path.read_text(encoding="utf-8", errors="replace")
+
+    if COPILOT_CONTENT_MARKER_START in existing:
+        cleaned = _strip_copilot_block(existing)
+        new_content = (cleaned + "\n\n" if cleaned else "") + block
+        if new_content == existing:
+            return False
+        if not dry_run:
+            path.write_text(new_content, encoding="utf-8")
+        return True
+    else:
+        new_content = (existing.rstrip() + "\n\n" if existing.strip() else "") + block
+        if not dry_run:
+            path.write_text(new_content, encoding="utf-8")
+        return True
+
+
+def _get_recall_content(project: str | None, limit: int, budget: int) -> str | None:
+    """Return recall output string, or None if no memories found.
+
+    Shared by `recall` CLI command and `install-hook --tool copilot`.
+    """
+    from crossmem.ingest import (
+        derive_project_name,
+        ingest_claude_memory,
+        ingest_copilot_memory,
+        ingest_gemini_memory,
+    )
+    from crossmem.server import resolve_project
+
+    store = MemoryStore()
+    try:
+        ingest_claude_memory(store)
+        ingest_copilot_memory(store)
+        ingest_gemini_memory(store)
+
+        cwd = os.getcwd()
+        project_dir = Path(cwd)
+
+        if not project:
+            known = store.list_projects()
+            project = resolve_project(cwd, known)
+            if not project:
+                if has_project_docs(project_dir):
+                    project = derive_project_name(project_dir)
+                    ingest_project_docs(store, project_dir, project=project)
+                else:
+                    return None
+
+        project_memories = store.get_by_project(project, limit=limit)
+        shared_memories = store.get_shared_sections(project, limit=min(limit, 10))
+
+        if not project_memories and not shared_memories:
+            if has_project_docs(project_dir):
+                ingest_project_docs(store, project_dir, project=project)
+                project_memories = store.get_by_project(project, limit=limit)
+                shared_memories = store.get_shared_sections(project, limit=min(limit, 10))
+            if not project_memories and not shared_memories:
+                return None
+
+        return _build_recall_output(project, project_memories, shared_memories, budget)
+    finally:
+        store.close()
 
 
 def _append_instruction(path: Path, dry_run: bool) -> bool:
@@ -595,18 +691,21 @@ def _remove_instruction(path: Path) -> bool:
 @click.option("--uninstall", is_flag=True, help="Remove instructions")
 @click.option("--dry-run", is_flag=True, help="Show what would change")
 def install_instructions(uninstall: bool, dry_run: bool) -> None:
-    """Add 'call mem_recall' instruction to Copilot and Gemini configs.
+    """Add 'call mem_recall' instruction to Gemini config.
 
-    Adds a one-line instruction to each tool's config file so the LLM
-    calls mem_recall at session start. Claude Code uses install-hook
-    instead (deterministic, no LLM decision).
+    For Gemini CLI: appends a one-line instruction so the LLM calls
+    mem_recall at session start.
+
+    For GitHub Copilot: use the newer command instead, which injects
+    actual recalled memories (not just a directive):
+
+        crossmem install-hook --tool copilot
 
     Target files:
-        .github/copilot-instructions.md  (current project)
-        ~/.gemini/GEMINI.md              (global)
+        ~/.gemini/GEMINI.md  (global)
     """
+    # Copilot is handled by install-hook --tool copilot (injects content, not directive)
     targets = {
-        "Copilot": Path.cwd() / ".github" / "copilot-instructions.md",
         "Gemini": Path.home() / ".gemini" / "GEMINI.md",
     }
 
@@ -632,17 +731,54 @@ def install_instructions(uninstall: bool, dry_run: bool) -> None:
 @main.command(name="install-hook")
 @click.option("--uninstall", is_flag=True, help="Remove the hook instead of installing")
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
-def install_hook(uninstall: bool, dry_run: bool) -> None:
-    """Add a SessionStart hook to Claude Code settings.
+@click.option(
+    "--tool",
+    type=click.Choice(["claude", "copilot"], case_sensitive=False),
+    default="claude",
+    help="Target tool: claude (default) or copilot",
+)
+@click.option(
+    "--global", "global_",
+    is_flag=True,
+    help="[copilot only] Write to VS Code global user prompts (applies to all workspaces)",
+)
+@click.option("-p", "--project", default=None, help="[copilot only] Project name (auto-detected)")
+@click.option("-n", "--limit", default=30, help="[copilot only] Max memories to inject")
+@click.option("--budget", default=2000, help="[copilot only] Max injected content size in characters")
+def install_hook(
+    uninstall: bool,
+    dry_run: bool,
+    tool: str,
+    global_: bool,
+    project: str | None,
+    limit: int,
+    budget: int,
+) -> None:
+    """Add a SessionStart hook to Claude Code settings, or inject context for Copilot.
 
-    Installs a hook that automatically loads crossmem memories
-    at the start of every Claude Code session. The hook runs
-    `crossmem recall` and injects the output as context.
+    Claude Code (default):
+        Installs a hook that automatically loads crossmem memories
+        at the start of every Claude Code session.
 
-    To remove:
+            crossmem install-hook
+            crossmem install-hook --uninstall
 
-        crossmem install-hook --uninstall
+    GitHub Copilot:
+        Injects recalled memories directly into copilot-instructions.md.
+        Uses marker-based replacement so re-running is idempotent.
+
+            crossmem install-hook --tool copilot               # workspace
+            crossmem install-hook --tool copilot --global      # all workspaces
+            crossmem install-hook --tool copilot --uninstall   # remove block
     """
+    if tool == "copilot":
+        _install_hook_copilot(uninstall, dry_run, global_, project, limit, budget)
+    else:
+        _install_hook_claude(uninstall, dry_run)
+
+
+def _install_hook_claude(uninstall: bool, dry_run: bool) -> None:
+    """Install or remove the Claude Code SessionStart hook."""
     settings_path = _claude_settings_path()
     settings = _read_settings(settings_path)
 
@@ -705,3 +841,62 @@ def install_hook(uninstall: bool, dry_run: bool) -> None:
     click.echo(f"  Hook: {crossmem_bin} recall")
     click.echo(f"  Settings: {settings_path}")
     click.echo("\nMemories will load automatically at every session start.")
+
+
+def _install_hook_copilot(
+    uninstall: bool,
+    dry_run: bool,
+    global_: bool,
+    project: str | None,
+    limit: int,
+    budget: int,
+) -> None:
+    """Inject recalled memories into Copilot instructions file.
+
+    Uses marker-based block replacement — idempotent, safe to re-run.
+    For --uninstall, removes the injected block leaving other content intact.
+    """
+    if global_:
+        target = _copilot_global_path()
+        label = "global Copilot instructions"
+    else:
+        target = Path.cwd() / ".github" / "copilot-instructions.md"
+        label = "workspace Copilot instructions"
+
+    if uninstall:
+        if not target.exists() or COPILOT_CONTENT_MARKER_START not in target.read_text(
+            encoding="utf-8", errors="replace"
+        ):
+            click.echo(f"No crossmem block found in {target}")
+            return
+        if dry_run:
+            click.echo(f"Would remove crossmem block from {target}")
+            return
+        content = target.read_text(encoding="utf-8", errors="replace")
+        cleaned = _strip_copilot_block(content)
+        target.write_text((cleaned + "\n") if cleaned else "", encoding="utf-8")
+        click.echo(f"Removed crossmem block from {target}")
+        return
+
+    output = _get_recall_content(project, limit, budget)
+    if output is None:
+        click.echo("No memories found. Run: crossmem ingest")
+        return
+
+    block = _build_copilot_block(output)
+
+    if dry_run:
+        click.echo(f"Would write to {target}:\n")
+        click.echo(block)
+        return
+
+    changed = _inject_copilot_block(target, block, dry_run=False)
+    if changed:
+        click.echo(f"Injected crossmem context into {label}: {target}")
+        if not global_:
+            click.echo(
+                "\n  Tip: add to .gitignore or re-run periodically to keep fresh.\n"
+                "  Re-run: crossmem install-hook --tool copilot"
+            )
+    else:
+        click.echo(f"{label}: already up to date")
