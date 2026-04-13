@@ -19,7 +19,7 @@ from crossmem.cli import (
     _strip_copilot_block,
     main,
 )
-from crossmem.store import MemoryStore
+from crossmem.store import Memory, MemoryStore, SearchResult
 
 
 class TestSourceTier:
@@ -244,6 +244,9 @@ class TestInstallHook:
         hook = settings["hooks"]["SessionStart"][0]
         assert hook["matcher"] == "startup|compact|resume"
         assert hook["hooks"][0]["command"] == "/usr/local/bin/crossmem recall"
+        assert "UserPromptSubmit" in settings["hooks"]
+        ups_hook = settings["hooks"]["UserPromptSubmit"][0]
+        assert ups_hook["hooks"][0]["command"] == "/usr/local/bin/crossmem prompt-search"
 
     def test_merges_with_existing_settings(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
@@ -383,7 +386,7 @@ class TestInstallHook:
             result = runner.invoke(main, ["install-hook", "--uninstall"])
 
         assert result.exit_code == 0
-        assert "No crossmem hook found" in result.output
+        assert "No crossmem hooks found" in result.output
 
     def test_dry_run_install(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
@@ -396,8 +399,9 @@ class TestInstallHook:
             result = runner.invoke(main, ["install-hook", "--dry-run"])
 
         assert result.exit_code == 0
-        assert "Would add" in result.output
-        assert "startup" in result.output
+        assert "Would install" in result.output
+        assert "SessionStart" in result.output
+        assert "UserPromptSubmit" in result.output
         assert not settings_path.exists()
 
     def test_dry_run_uninstall(self, tmp_path: Path) -> None:
@@ -1062,3 +1066,179 @@ class TestInit:
 
         assert result.exit_code == 0
         assert "2 new memories" in result.output
+
+
+class TestPromptSearch:
+    def test_returns_results_for_matching_prompt(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("Always use middleware for credential masking", "mcp:mem_save", "backend-api", "Security")
+        store.close()
+
+        hook_input = json.dumps({"prompt": "how should I handle credentials in this service"})
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert "credential" in result.output.lower()
+
+    def test_silent_for_short_prompts(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("Some memory content here", "mcp:mem_save", "test", "General")
+        store.close()
+
+        hook_input = json.dumps({"prompt": "hi"})
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert result.output == ""
+
+    def test_silent_for_no_matches(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("Python FastAPI patterns", "mcp:mem_save", "backend", "Patterns")
+        store.close()
+
+        hook_input = json.dumps({"prompt": "what is the weather like in Tokyo today"})
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        # No output — no relevant memories
+        assert "crossmem" not in result.output
+
+    def test_silent_for_invalid_json(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(main, ["prompt-search"], input="not json at all")
+
+        assert result.exit_code == 0
+        assert result.output == ""
+
+    def test_silent_for_empty_prompt(self) -> None:
+        hook_input = json.dumps({"prompt": ""})
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert result.output == ""
+
+    def test_includes_project_and_section(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("JWT tokens rotated on each use", "mcp:mem_save", "backend-api", "Auth")
+        store.close()
+
+        hook_input = json.dumps({"prompt": "how do we handle JWT token rotation in our auth"})
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert "(backend-api)" in result.output
+        assert "[Auth]" in result.output
+
+    def test_handles_question_mark_in_prompt(self, tmp_path: Path) -> None:
+        """Regression: ? is an FTS5 syntax char — must not crash."""
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("Always rotate credentials quarterly", "mcp:mem_save", "proj", "Security")
+        store.close()
+
+        hook_input = json.dumps({"prompt": "how do we rotate credentials?"})
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert "credential" in result.output.lower()
+
+    def test_handles_fts5_special_chars(self, tmp_path: Path) -> None:
+        """Regression: colons, parens, asterisks etc. are FTS5 syntax — must not crash."""
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("Use pytest fixtures for test setup", "mcp:mem_save", "proj", "Testing")
+        store.close()
+
+        hook_input = json.dumps({"prompt": "how to use pytest::fixture with (scope=session)?"})
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        # Key assertion: no crash from FTS5 special characters
+        assert result.exit_code == 0
+
+    def test_all_stop_words_returns_silent(self, tmp_path: Path) -> None:
+        """Regression: prompts with only stop words should not hit the DB."""
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("Some memory", "mcp:mem_save", "proj", "General")
+        store.close()
+
+        hook_input = json.dumps({"prompt": "do it now"})
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert result.output == ""
+
+    def test_rank_filter_keeps_strong_matches(self) -> None:
+        """Strong BM25 rank (<= -5.0) should be kept."""
+        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
+        mock_store = type("MockStore", (), {
+            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-10.0, highlight="")],
+            "close": lambda self: None,
+        })()
+
+        hook_input = json.dumps({"prompt": "handle credentials securely"})
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert "credential" in result.output.lower()
+
+    def test_rank_filter_removes_weak_matches(self) -> None:
+        """Weak BM25 rank (> -5.0) should be filtered when DB has meaningful ranks."""
+        mem = Memory(id=1, content="some noise", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
+        mock_store = type("MockStore", (), {
+            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-2.0, highlight="")],
+            "close": lambda self: None,
+        })()
+
+        hook_input = json.dumps({"prompt": "handle credentials securely"})
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert result.output == ""
+
+    def test_rank_filter_bypassed_for_tiny_db(self) -> None:
+        """When best rank >= -1.0 (tiny DB), skip filtering — show all results."""
+        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
+        mock_store = type("MockStore", (), {
+            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-0.5, highlight="")],
+            "close": lambda self: None,
+        })()
+
+        hook_input = json.dumps({"prompt": "handle credentials securely"})
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert "credential" in result.output.lower()

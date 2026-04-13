@@ -83,6 +83,14 @@ class TestSearch:
         results = store.search("kubernetes")
         assert len(results) == 0
 
+    def test_or_mode_matches_any_term(self, store: MemoryStore) -> None:
+        store.add("Always use middleware for credential masking", "f.md", "proj")
+        store.add("Docker setup instructions", "f.md", "proj")
+        # AND would fail — "handle" and "service" aren't in the memory
+        results = store.search("handle credentials service", or_mode=True)
+        assert len(results) == 1
+        assert "credential" in results[0].memory.content
+
     def test_highlight_present(self, store: MemoryStore) -> None:
         store.add("credential masking approach", "f.md", "proj")
         results = store.search("credential")
@@ -120,6 +128,10 @@ class TestBuildFtsQuery:
     def test_hyphenated_with_quoted_phrase(self) -> None:
         result = MemoryStore._build_fts_query('"exact phrase" pre-commit hooks')
         assert result == '"exact phrase" AND "pre-commit" AND hooks'
+
+    def test_or_mode(self) -> None:
+        result = MemoryStore._build_fts_query("credential masking", or_mode=True)
+        assert result == "credential OR masking"
 
 
 class TestGetByProject:

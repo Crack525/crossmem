@@ -439,6 +439,83 @@ def recall(project: str | None, limit: int, budget: int, fmt: str) -> None:
         click.echo(output)
 
 
+@main.command(name="prompt-search")
+def prompt_search() -> None:
+    """Search memories based on the user's prompt (for UserPromptSubmit hook).
+
+    Reads the hook JSON from stdin, extracts the prompt text,
+    searches crossmem for relevant memories, and outputs them to stdout.
+    Claude Code injects stdout as additionalContext before generating.
+
+    This command is not meant to be run manually — it's installed
+    as a UserPromptSubmit hook by `crossmem install-hook`.
+    """
+    import sys
+
+    try:
+        hook_input = json.loads(sys.stdin.read())
+    except (json.JSONDecodeError, ValueError):
+        return
+
+    prompt = hook_input.get("prompt", "")
+    if not prompt or len(prompt.split()) < PROMPT_SEARCH_MIN_WORDS:
+        return
+
+    # Extract meaningful search terms — skip very common words
+    import re as _re
+
+    stop_words = {
+        "i", "me", "my", "we", "our", "you", "your", "it", "its", "he", "she", "they",
+        "a", "an", "the", "this", "that", "these", "those",
+        "is", "am", "are", "was", "were", "be", "been", "being",
+        "do", "does", "did", "will", "would", "could", "should", "can", "may", "might",
+        "have", "has", "had", "having",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "about",
+        "and", "or", "but", "not", "no", "if", "when", "how", "what", "which", "where",
+        "so", "just", "also", "very", "too", "here", "there",
+        "now", "then", "up", "down", "still", "let", "want", "need", "use", "get", "make",
+        "yes", "ok", "okay", "sure", "please", "thanks", "thank",
+        "go", "ahead", "good", "great", "looks", "look", "like", "continue", "done", "right",
+        "actually", "pretty", "really", "stuff", "things", "thing", "something", "anything",
+        "interesting", "cool", "nice", "fine", "bad", "better", "best", "worst", "new", "old",
+        "know", "think", "see", "try", "show", "tell", "give", "take", "put", "run", "set",
+        "way", "work", "works", "well", "much", "many", "some", "any", "all", "each", "every",
+    }
+    # Strip all non-alphanumeric chars (FTS5 special chars: ? * : ( ) + ^ ~ { })
+    keywords = [_re.sub(r"[^a-z0-9]", "", w) for w in prompt.lower().split()]
+    keywords = [w for w in keywords if w and w not in stop_words]
+    if not keywords:
+        return
+
+    search_query = " ".join(keywords)
+    store = MemoryStore()
+    try:
+        results = store.search(search_query, limit=PROMPT_SEARCH_MAX_RESULTS, or_mode=True)
+        # Filter weak matches — BM25 rank is more negative for stronger matches.
+        # Skip filtering when: rank ~0 (tiny DB), or single keyword (specific/intentional).
+        if len(keywords) > 1 and results and results[0].rank < -1.0:
+            results = [r for r in results if r.rank <= PROMPT_SEARCH_MIN_RANK]
+        if not results:
+            return
+
+        lines = ["# crossmem: relevant memories"]
+        used = len(lines[0]) + 1
+        for r in results:
+            mem = r.memory
+            section = f" [{mem.section}]" if mem.section else ""
+            project = f"({mem.project})"
+            line = f"- {project}{section} {mem.snippet}"
+            if used + len(line) + 1 > PROMPT_SEARCH_BUDGET:
+                break
+            lines.append(line)
+            used += len(line) + 1
+
+        if len(lines) > 1:
+            click.echo("\n".join(lines))
+    finally:
+        store.close()
+
+
 def _find_crossmem_bin() -> str:
     """Find the crossmem binary path, preferring an absolute path.
 
@@ -478,6 +555,10 @@ def _write_settings(path: Path, data: dict) -> None:
 
 HOOK_MATCHER = "startup|compact|resume"
 HOOK_MATCHER_LEGACY = "crossmem-recall"
+PROMPT_SEARCH_MIN_WORDS = 3
+PROMPT_SEARCH_MAX_RESULTS = 5
+PROMPT_SEARCH_BUDGET = 4000
+PROMPT_SEARCH_MIN_RANK = -5.0  # BM25 rank: more negative = stronger match; filter weak hits
 
 
 INSTRUCTION_LINE = (
@@ -821,41 +902,63 @@ def install_hook(
 
 
 def _install_hook_claude(uninstall: bool, dry_run: bool) -> None:
-    """Install or remove the Claude Code SessionStart hook."""
+    """Install or remove the Claude Code SessionStart and UserPromptSubmit hooks."""
     settings_path = _claude_settings_path()
     settings = _read_settings(settings_path)
 
     hooks = settings.get("hooks", {})
-    session_start = hooks.get("SessionStart", [])
+    crossmem_bin = _find_crossmem_bin()
 
-    existing_idx = None
+    # --- SessionStart hook ---
+    session_start = hooks.get("SessionStart", [])
+    ss_idx = None
     for i, entry in enumerate(session_start):
         matcher = entry.get("matcher", "")
         hooks_list = entry.get("hooks", [])
         has_crossmem_cmd = any("crossmem recall" in h.get("command", "") for h in hooks_list)
         if matcher in (HOOK_MATCHER, HOOK_MATCHER_LEGACY) or has_crossmem_cmd:
-            existing_idx = i
+            ss_idx = i
+            break
+
+    # --- UserPromptSubmit hook ---
+    prompt_submit = hooks.get("UserPromptSubmit", [])
+    ups_idx = None
+    for i, entry in enumerate(prompt_submit):
+        hooks_list = entry.get("hooks", [])
+        has_crossmem_cmd = any(
+            "crossmem prompt-search" in h.get("command", "") for h in hooks_list
+        )
+        if has_crossmem_cmd:
+            ups_idx = i
             break
 
     if uninstall:
-        if existing_idx is not None:
+        removed = False
+        if ss_idx is not None:
+            if not dry_run:
+                session_start.pop(ss_idx)
+                if not session_start:
+                    del hooks["SessionStart"]
+            removed = True
+        if ups_idx is not None:
+            if not dry_run:
+                prompt_submit.pop(ups_idx)
+                if not prompt_submit:
+                    del hooks["UserPromptSubmit"]
+            removed = True
+        if removed:
             if dry_run:
-                click.echo(f"Would remove crossmem hook from {settings_path}")
+                click.echo(f"Would remove crossmem hooks from {settings_path}")
                 return
-            session_start.pop(existing_idx)
-            if not session_start:
-                del hooks["SessionStart"]
             if not hooks:
-                del settings["hooks"]
+                settings.pop("hooks", None)
             _write_settings(settings_path, settings)
-            click.echo("Removed crossmem hook from Claude Code settings.")
+            click.echo("Removed crossmem hooks from Claude Code settings.")
         else:
-            click.echo("No crossmem hook found in Claude Code settings.")
+            click.echo("No crossmem hooks found in Claude Code settings.")
         return
 
-    crossmem_bin = _find_crossmem_bin()
-
-    hook_entry = {
+    ss_entry = {
         "matcher": HOOK_MATCHER,
         "hooks": [
             {
@@ -865,25 +968,48 @@ def _install_hook_claude(uninstall: bool, dry_run: bool) -> None:
         ],
     }
 
+    ups_entry = {
+        "hooks": [
+            {
+                "type": "command",
+                "command": f"{crossmem_bin} prompt-search",
+            }
+        ],
+    }
+
     if dry_run:
-        action = "update" if existing_idx is not None else "add"
-        click.echo(f"Would {action} in {settings_path}:\n")
-        click.echo(json.dumps({"hooks": {"SessionStart": [hook_entry]}}, indent=2))
+        click.echo(f"Would install in {settings_path}:\n")
+        click.echo(json.dumps({
+            "hooks": {
+                "SessionStart": [ss_entry],
+                "UserPromptSubmit": [ups_entry],
+            }
+        }, indent=2))
         return
 
-    if existing_idx is not None:
-        session_start[existing_idx] = hook_entry
-        click.echo("Updated crossmem hook in Claude Code settings.")
+    # Install/update SessionStart
+    if ss_idx is not None:
+        session_start[ss_idx] = ss_entry
     else:
-        session_start.append(hook_entry)
-        click.echo("Installed crossmem hook in Claude Code settings.")
-
+        session_start.append(ss_entry)
     hooks["SessionStart"] = session_start
+
+    # Install/update UserPromptSubmit
+    if ups_idx is not None:
+        prompt_submit[ups_idx] = ups_entry
+    else:
+        prompt_submit.append(ups_entry)
+    hooks["UserPromptSubmit"] = prompt_submit
+
     settings["hooks"] = hooks
     _write_settings(settings_path, settings)
-    click.echo(f"  Hook: {crossmem_bin} recall")
+
+    action = "Updated" if (ss_idx is not None or ups_idx is not None) else "Installed"
+    click.echo(f"{action} crossmem hooks in Claude Code settings.")
+    click.echo(f"  SessionStart: {crossmem_bin} recall")
+    click.echo(f"  UserPromptSubmit: {crossmem_bin} prompt-search")
     click.echo(f"  Settings: {settings_path}")
-    click.echo("\nMemories will load automatically at every session start.")
+    click.echo("\nMemories will load at session start AND before every response.")
 
 
 def _install_hook_copilot(

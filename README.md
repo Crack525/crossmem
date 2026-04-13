@@ -59,7 +59,7 @@ No copy-pasting. No "I already solved this." Your AI remembers — across every 
 
 | Tool | Auto-recall | How |
 |------|-------------|-----|
-| **Claude Code** | SessionStart hook — fires on startup, resume, compact | `crossmem install-hook` |
+| **Claude Code** | SessionStart hook (startup/resume/compact) + UserPromptSubmit hook (every prompt) | `crossmem install-hook` |
 | **GitHub Copilot** | Injects memories into copilot-instructions.md | `crossmem install-hook --tool copilot` |
 | **Gemini CLI** | Instruction in GEMINI.md | `crossmem install-instructions` |
 
@@ -76,7 +76,8 @@ gemini                    # Gemini: calls mem_recall via instruction in GEMINI.m
 2. **Auto-init** — first time in a project? Indexes README.md, CLAUDE.md, etc.
 3. **Tiered recall** — returns most relevant context within a token budget:
    curated memories > tool memories > CLAUDE.md > CONTRIBUTING.md > README.md
-4. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds.
+4. **Mid-session recall** (Claude Code) — every prompt is searched against your memories. Relevant context is injected before the model responds — no manual `mem_recall` needed.
+5. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds.
 
 ## MCP Server
 
@@ -163,11 +164,14 @@ crossmem init                        # current directory
 crossmem init -p my-api --path ~/projects/api
 
 # Hooks
-crossmem install-hook                              # Claude Code
+crossmem install-hook                              # Claude Code (SessionStart + UserPromptSubmit)
 crossmem install-hook --tool copilot               # Copilot (workspace)
 crossmem install-hook --tool copilot --global      # Copilot (all workspaces)
 crossmem install-hook --tool copilot --if-stale    # refresh if >30 min old
 crossmem install-instructions                      # Gemini
+
+# Internal (installed as hooks — not run manually)
+crossmem prompt-search                             # mid-session recall via UserPromptSubmit
 
 # Other
 crossmem ingest       # re-ingest tool memories

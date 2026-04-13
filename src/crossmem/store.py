@@ -152,15 +152,22 @@ class MemoryStore:
 
         return self.add(content, source_file, project, section)
 
-    def search(self, query: str, limit: int = 10, project: str | None = None) -> list[SearchResult]:
+    def search(
+        self,
+        query: str,
+        limit: int = 10,
+        project: str | None = None,
+        or_mode: bool = False,
+    ) -> list[SearchResult]:
         """Full-text search across all memories.
 
         Query logic:
         - Multiple words default to AND (all terms must match)
         - Quoted phrases are preserved as exact matches
         - Single words search as-is
+        - or_mode=True uses OR logic (any term can match) — useful for fuzzy/prompt searches
         """
-        fts_query = self._build_fts_query(query)
+        fts_query = self._build_fts_query(query, or_mode=or_mode)
 
         sql = """SELECT m.*, rank, highlight(memories_fts, 0, '>>>', '<<<') as hl
                  FROM memories_fts fts
@@ -195,7 +202,7 @@ class MemoryStore:
         ]
 
     @staticmethod
-    def _build_fts_query(query: str) -> str:
+    def _build_fts_query(query: str, *, or_mode: bool = False) -> str:
         """Build FTS5 query string. Default to AND logic, preserve quoted phrases."""
         import re
 
@@ -213,7 +220,8 @@ class MemoryStore:
         if not parts:
             return query
 
-        return " AND ".join(parts)
+        joiner = " OR " if or_mode else " AND "
+        return joiner.join(parts)
 
     def get_by_project(self, project: str, limit: int = 50) -> list[Memory]:
         """Get all memories for a project, ordered by most recent."""
