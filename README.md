@@ -77,7 +77,7 @@ gemini                    # Gemini: calls mem_recall via instruction in GEMINI.m
 2. **Auto-init** — first time in a project? Indexes README.md, CLAUDE.md, etc.
 3. **Tiered recall** — returns most relevant context within a token budget:
    curated memories > tool memories > CLAUDE.md > CONTRIBUTING.md > README.md
-4. **Mid-session recall** (Claude Code) — every prompt is searched against your memories. Relevant context is injected before the model responds — no manual `mem_recall` needed.
+4. **Mid-session recall** (Claude Code + VS Code Agent Mode) — every prompt is searched against your memories. Relevant context is injected before the model responds — no manual `mem_recall` needed.
 5. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds.
 
 ## MCP Server
@@ -150,6 +150,7 @@ Add to your tool's MCP config so AI assistants can search, recall, and save memo
 crossmem recall                  # auto-detects project from cwd
 crossmem recall -p backend-api   # explicit project
 crossmem recall --format copilot # marker-wrapped for Copilot injection
+crossmem recall --format vscode  # JSON for VS Code agent-mode hooks
 
 # Search
 crossmem search "JWT token rotation"
