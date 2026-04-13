@@ -61,6 +61,7 @@ No copy-pasting. No "I already solved this." Your AI remembers — across every 
 |------|-------------|-----|
 | **Claude Code** | SessionStart hook (startup/resume/compact) + UserPromptSubmit hook (every prompt) | `crossmem install-hook` |
 | **GitHub Copilot** | Injects memories into copilot-instructions.md | `crossmem install-hook --tool copilot` |
+| **VS Code Agent Mode** | SessionStart + UserPromptSubmit hooks (Preview) | `crossmem install-hook --tool copilot-agent` |
 | **Gemini CLI** | Instruction in GEMINI.md | `crossmem install-instructions` |
 
 ## What happens under the hood
@@ -165,9 +166,10 @@ crossmem init -p my-api --path ~/projects/api
 
 # Hooks
 crossmem install-hook                              # Claude Code (SessionStart + UserPromptSubmit)
-crossmem install-hook --tool copilot               # Copilot (workspace)
+crossmem install-hook --tool copilot               # Copilot (workspace instructions)
 crossmem install-hook --tool copilot --global      # Copilot (all workspaces)
 crossmem install-hook --tool copilot --if-stale    # refresh if >30 min old
+crossmem install-hook --tool copilot-agent         # VS Code agent mode (.github/hooks/)
 crossmem install-instructions                      # Gemini
 
 # Internal (installed as hooks — not run manually)

@@ -401,9 +401,9 @@ def _build_recall_output(
 @click.option("--budget", default=2000, help="Max output size in characters")
 @click.option(
     "--format", "fmt",
-    type=click.Choice(["text", "copilot"], case_sensitive=False),
+    type=click.Choice(["text", "copilot", "vscode"], case_sensitive=False),
     default="text",
-    help="Output format: text (default) or copilot (wraps in injection markers)",
+    help="Output format: text (default), copilot (injection markers), or vscode (hook JSON)",
 )
 def recall(project: str | None, limit: int, budget: int, fmt: str) -> None:
     """Recall memories for the current project (for use as a hook).
@@ -435,6 +435,13 @@ def recall(project: str | None, limit: int, budget: int, fmt: str) -> None:
         return
     if fmt == "copilot":
         click.echo(_build_copilot_block(output))
+    elif fmt == "vscode":
+        click.echo(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": output,
+            }
+        }))
     else:
         click.echo(output)
 
@@ -511,7 +518,17 @@ def prompt_search() -> None:
             used += len(line) + 1
 
         if len(lines) > 1:
-            click.echo("\n".join(lines))
+            output = "\n".join(lines)
+            # VS Code hooks pass hookEventName — wrap output in JSON for additionalContext
+            if hook_input.get("hookEventName"):
+                click.echo(json.dumps({
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": output,
+                    }
+                }))
+            else:
+                click.echo(output)
     finally:
         store.close()
 
@@ -829,9 +846,9 @@ def install_instructions(uninstall: bool, dry_run: bool) -> None:
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
 @click.option(
     "--tool",
-    type=click.Choice(["claude", "copilot"], case_sensitive=False),
+    type=click.Choice(["claude", "copilot", "copilot-agent"], case_sensitive=False),
     default="claude",
-    help="Target tool: claude (default) or copilot",
+    help="Target tool: claude (default), copilot (instructions.md), or copilot-agent (VS Code hooks)",
 )
 @click.option(
     "--global", "global_",
@@ -871,7 +888,14 @@ def install_hook(
             crossmem install-hook
             crossmem install-hook --uninstall
 
-    GitHub Copilot:
+    GitHub Copilot (agent mode):
+        Creates .github/hooks/crossmem.json with SessionStart and
+        UserPromptSubmit hooks for VS Code agent mode (Preview).
+
+            crossmem install-hook --tool copilot-agent
+            crossmem install-hook --tool copilot-agent --uninstall
+
+    GitHub Copilot (instructions):
         Injects recalled memories directly into copilot-instructions.md.
         Uses marker-based replacement so re-running is idempotent.
 
@@ -886,7 +910,9 @@ def install_hook(
     """
     if tool == "claude" and (if_stale or max_age != 30):
         click.echo("Warning: --if-stale and --max-age are only used with --tool copilot.")
-    if tool == "copilot":
+    if tool == "copilot-agent":
+        _install_hook_copilot_agent(uninstall=uninstall, dry_run=dry_run)
+    elif tool == "copilot":
         _install_hook_copilot(
             uninstall=uninstall,
             dry_run=dry_run,
@@ -1010,6 +1036,56 @@ def _install_hook_claude(uninstall: bool, dry_run: bool) -> None:
     click.echo(f"  UserPromptSubmit: {crossmem_bin} prompt-search")
     click.echo(f"  Settings: {settings_path}")
     click.echo("\nMemories will load at session start AND before every response.")
+
+
+def _install_hook_copilot_agent(uninstall: bool, dry_run: bool) -> None:
+    """Install or remove VS Code agent-mode hooks in .github/hooks/crossmem.json."""
+    hooks_dir = Path.cwd() / ".github" / "hooks"
+    hooks_path = hooks_dir / "crossmem.json"
+    crossmem_bin = _find_crossmem_bin()
+
+    if uninstall:
+        if not hooks_path.exists():
+            click.echo("No crossmem hook found in .github/hooks/.")
+            return
+        if dry_run:
+            click.echo(f"Would remove {hooks_path}")
+            return
+        hooks_path.unlink()
+        # Remove empty dirs
+        if hooks_dir.exists() and not any(hooks_dir.iterdir()):
+            hooks_dir.rmdir()
+        click.echo(f"Removed {hooks_path}")
+        return
+
+    config = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "type": "command",
+                    "command": f"{crossmem_bin} recall --format vscode",
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "type": "command",
+                    "command": f"{crossmem_bin} prompt-search",
+                }
+            ],
+        }
+    }
+
+    if dry_run:
+        click.echo(f"Would create {hooks_path}:\n")
+        click.echo(json.dumps(config, indent=2))
+        return
+
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hooks_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    click.echo(f"Installed VS Code agent hooks: {hooks_path}")
+    click.echo(f"  SessionStart: {crossmem_bin} recall --format vscode")
+    click.echo(f"  UserPromptSubmit: {crossmem_bin} prompt-search")
+    click.echo("\nNote: UserPromptSubmit additionalContext is pending VS Code support.")
 
 
 def _install_hook_copilot(

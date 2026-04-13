@@ -1242,3 +1242,111 @@ class TestPromptSearch:
 
         assert result.exit_code == 0
         assert "credential" in result.output.lower()
+
+
+class TestPromptSearchVscodeFormat:
+    def test_outputs_json_when_hookEventName_present(self) -> None:
+        """VS Code hooks pass hookEventName — output should be JSON with additionalContext."""
+        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
+        mock_store = type("MockStore", (), {
+            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-10.0, highlight="")],
+            "close": lambda self: None,
+        })()
+
+        hook_input = json.dumps({
+            "prompt": "handle credentials securely",
+            "hookEventName": "UserPromptSubmit",
+            "sessionId": "test",
+        })
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert parsed["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+        assert "credential" in parsed["hookSpecificOutput"]["additionalContext"].lower()
+
+    def test_outputs_plain_text_without_hookEventName(self) -> None:
+        """Claude Code format (no hookEventName) — output should be plain text."""
+        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
+        mock_store = type("MockStore", (), {
+            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-10.0, highlight="")],
+            "close": lambda self: None,
+        })()
+
+        hook_input = json.dumps({"prompt": "handle credentials securely"})
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        assert result.output.startswith("# crossmem:")
+        # Should NOT be JSON
+        assert "hookSpecificOutput" not in result.output
+
+
+class TestRecallVscodeFormat:
+    def test_recall_format_vscode(self, tmp_path: Path) -> None:
+        """recall --format vscode should output SessionStart JSON."""
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("Always rotate credentials", "mcp:mem_save", "test-proj", "Security")
+        store.close()
+
+        runner = CliRunner()
+        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+            result = runner.invoke(main, ["recall", "-p", "test-proj", "--format", "vscode"])
+
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert parsed["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+        assert "credential" in parsed["hookSpecificOutput"]["additionalContext"].lower()
+
+
+class TestInstallHookCopilotAgent:
+    def test_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        with patch("crossmem.cli._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent", "--dry-run"])
+
+        assert result.exit_code == 0
+        assert "Would create" in result.output
+        assert "SessionStart" in result.output
+        assert "UserPromptSubmit" in result.output
+        assert not (tmp_path / ".github" / "hooks" / "crossmem.json").exists()
+
+    def test_install_creates_file(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        with patch("crossmem.cli._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent"])
+
+        assert result.exit_code == 0
+        hooks_path = tmp_path / ".github" / "hooks" / "crossmem.json"
+        assert hooks_path.exists()
+        config = json.loads(hooks_path.read_text())
+        assert "SessionStart" in config["hooks"]
+        assert "UserPromptSubmit" in config["hooks"]
+        assert "--format vscode" in config["hooks"]["SessionStart"][0]["command"]
+
+    def test_uninstall_removes_file(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        hooks_path = tmp_path / ".github" / "hooks" / "crossmem.json"
+        hooks_path.parent.mkdir(parents=True)
+        hooks_path.write_text("{}")
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent", "--uninstall"])
+
+        assert result.exit_code == 0
+        assert not hooks_path.exists()
+
+    def test_uninstall_noop_when_missing(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent", "--uninstall"])
+
+        assert result.exit_code == 0
+        assert "No crossmem hook found" in result.output
