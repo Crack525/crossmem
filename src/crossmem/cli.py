@@ -497,11 +497,37 @@ def prompt_search() -> None:
     search_query = " ".join(keywords)
     store = MemoryStore()
     try:
-        results = store.search(search_query, limit=PROMPT_SEARCH_MAX_RESULTS, or_mode=True)
+        # Auto-detect current project to prioritize relevant memories
+        current_project = None
+        try:
+            from crossmem.server import resolve_project
+
+            cwd = hook_input.get("cwd") or os.getcwd()
+            known = [r["project"] for r in store.db.execute("SELECT DISTINCT project FROM memories").fetchall()]
+            if known:
+                current_project = resolve_project(cwd, known)
+        except Exception:
+            pass
+
+        # Search project-scoped first, fall back to global
+        results = []
+        if current_project:
+            results = store.search(search_query, limit=PROMPT_SEARCH_MAX_RESULTS, project=current_project, or_mode=True)
+        if len(results) < PROMPT_SEARCH_MAX_RESULTS:
+            remaining = PROMPT_SEARCH_MAX_RESULTS - len(results)
+            global_results = store.search(search_query, limit=remaining, or_mode=True)
+            seen_ids = {r.memory.id for r in results}
+            results.extend(r for r in global_results if r.memory.id not in seen_ids)
+
         # Filter weak matches — BM25 rank is more negative for stronger matches.
         # Skip filtering when: rank ~0 (tiny DB), or single keyword (specific/intentional).
+        # Project-scoped results get a lenient threshold (fewer docs = weaker BM25 scores).
         if len(keywords) > 1 and results and results[0].rank < -1.0:
-            results = [r for r in results if r.rank <= PROMPT_SEARCH_MIN_RANK]
+            results = [
+                r for r in results
+                if r.rank <= PROMPT_SEARCH_MIN_RANK
+                or (current_project and r.memory.project == current_project)
+            ]
         if not results:
             return
 
