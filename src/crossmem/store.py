@@ -50,7 +50,7 @@ class MemoryStore:
             self.db.execute("PRAGMA journal_mode=WAL")
         except sqlite3.OperationalError:
             pass  # locked by another connection — existing mode is fine
-        self.db.execute("PRAGMA busy_timeout=5000")
+        self.db.execute("PRAGMA busy_timeout=30000")
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -347,4 +347,9 @@ class MemoryStore:
         return self.db.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
     def close(self) -> None:
+        # Checkpoint WAL to keep the file small when many processes share the DB
+        try:
+            self.db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except sqlite3.OperationalError:
+            pass  # another connection holds a lock — skip silently
         self.db.close()

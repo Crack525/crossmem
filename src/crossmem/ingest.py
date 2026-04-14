@@ -251,6 +251,17 @@ def ingest_project_docs(
     added = 0
     for doc_file in docs:
         content = doc_file.read_text(encoding="utf-8", errors="replace")
+        # Strip any crossmem-injected block to avoid feedback loops:
+        # install-hook writes markers → ingest reads them → next recall duplicates
+        if "<!-- crossmem:" in content:
+            import re
+
+            content = re.sub(
+                r"<!-- crossmem:auto-injected[^>]*-->.*?<!-- crossmem:end -->",
+                "",
+                content,
+                flags=re.DOTALL,
+            ).strip()
         if not content.strip():
             continue
 

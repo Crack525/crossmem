@@ -17,18 +17,23 @@ from crossmem.store import MemoryStore
 
 mcp = FastMCP("crossmem")
 
-_store: MemoryStore | None = None
+_ingested: bool = False
 
 
 def get_store() -> MemoryStore:
-    global _store
-    if _store is None:
-        _store = MemoryStore()
-        # Auto-ingest on first access (server startup)
-        ingest_claude_memory(_store)
-        ingest_gemini_memory(_store)
-        ingest_copilot_memory(_store)
-    return _store
+    """Return a fresh MemoryStore connection.
+
+    Caller MUST call store.close() when done to release the DB lock.
+    Auto-ingest runs once on the first call per process.
+    """
+    global _ingested
+    store = MemoryStore()
+    if not _ingested:
+        ingest_claude_memory(store)
+        ingest_gemini_memory(store)
+        ingest_copilot_memory(store)
+        _ingested = True
+    return store
 
 
 @mcp.tool()
@@ -44,20 +49,23 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
         limit: Max number of results (default 10)
     """
     store = get_store()
-    results = store.search(query, limit=limit, project=project)
+    try:
+        results = store.search(query, limit=limit, project=project)
 
-    if not results:
-        return f'No results for "{query}"'
+        if not results:
+            return f'No results for "{query}"'
 
-    lines = [f'Found {len(results)} results for "{query}":\n']
-    for i, result in enumerate(results, 1):
-        mem = result.memory
-        lines.append(f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id})")
-        lines.append(f"    Source: {mem.source_file.split('/')[-1]}")
-        lines.append(f"    {mem.snippet}")
-        lines.append("")
+        lines = [f'Found {len(results)} results for "{query}":\n']
+        for i, result in enumerate(results, 1):
+            mem = result.memory
+            lines.append(f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id})")
+            lines.append(f"    Source: {mem.source_file.split('/')[-1]}")
+            lines.append(f"    {mem.snippet}")
+            lines.append("")
 
-    return "\n".join(lines)
+        return "\n".join(lines)
+    finally:
+        store.close()
 
 
 def resolve_project(cwd: str, known_projects: list[str]) -> str | None:
@@ -109,56 +117,59 @@ def mem_recall(project: str | None = None, cwd: str | None = None) -> str:
         cwd: Working directory path for auto-detection (defaults to os.getcwd())
     """
     store = get_store()
-    cwd = cwd or os.getcwd()
-    project_dir = Path(cwd)
+    try:
+        cwd = cwd or os.getcwd()
+        project_dir = Path(cwd)
 
-    if not project:
-        known = store.list_projects()
-        project = resolve_project(cwd, known)
         if not project:
-            if has_project_docs(project_dir):
-                project = derive_project_name(project_dir)
-                ingest_project_docs(store, project_dir, project=project)
-            else:
-                return (
-                    f'Could not detect project from "{cwd}".\n'
-                    f"Known projects: {', '.join(known)}\n"
-                    "Pass an explicit project name to mem_recall(project=...)."
-                )
+            known = store.list_projects()
+            project = resolve_project(cwd, known)
+            if not project:
+                if has_project_docs(project_dir):
+                    project = derive_project_name(project_dir)
+                    ingest_project_docs(store, project_dir, project=project)
+                else:
+                    return (
+                        f'Could not detect project from "{cwd}".\n'
+                        f"Known projects: {', '.join(known)}\n"
+                        "Pass an explicit project name to mem_recall(project=...)."
+                    )
 
-    # Get project-specific memories from the store
-    project_memories = store.get_by_project(project)
-
-    # Auto-init if project exists but has no memories yet
-    if not project_memories and has_project_docs(project_dir):
-        ingest_project_docs(store, project_dir, project=project)
+        # Get project-specific memories from the store
         project_memories = store.get_by_project(project)
 
-    # Get cross-project patterns (other projects sharing the same section names)
-    shared_memories = store.get_shared_sections(project)
+        # Auto-init if project exists but has no memories yet
+        if not project_memories and has_project_docs(project_dir):
+            ingest_project_docs(store, project_dir, project=project)
+            project_memories = store.get_by_project(project)
 
-    lines = []
+        # Get cross-project patterns (other projects sharing the same section names)
+        shared_memories = store.get_shared_sections(project)
 
-    if project_memories:
-        lines.append(f"## {project} memories ({len(project_memories)}):\n")
-        for mem in project_memories:
-            section = f" / {mem.section}" if mem.section else ""
-            lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
-        lines.append("")
+        lines = []
 
-    if shared_memories:
-        lines.append(
-            f"## Cross-project patterns ({len(shared_memories)} from other projects):\n"
-        )
-        for mem in shared_memories:
-            label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-            lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
-        lines.append("")
+        if project_memories:
+            lines.append(f"## {project} memories ({len(project_memories)}):\n")
+            for mem in project_memories:
+                section = f" / {mem.section}" if mem.section else ""
+                lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
+            lines.append("")
 
-    if not lines:
-        return f'No memories found for project "{project}". Run mem_ingest() first.'
+        if shared_memories:
+            lines.append(
+                f"## Cross-project patterns ({len(shared_memories)} from other projects):\n"
+            )
+            for mem in shared_memories:
+                label = f"{mem.project} / {mem.section}" if mem.section else mem.project
+                lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+            lines.append("")
 
-    return "\n".join(lines)
+        if not lines:
+            return f'No memories found for project "{project}". Run mem_ingest() first.'
+
+        return "\n".join(lines)
+    finally:
+        store.close()
 
 
 @mcp.tool()
@@ -183,30 +194,32 @@ def mem_save(
         cwd: Working directory for auto-detection (defaults to os.getcwd())
     """
     store = get_store()
-
-    if not project:
-        cwd = cwd or os.getcwd()
-        known = store.list_projects()
-        project = resolve_project(cwd, known)
+    try:
         if not project:
-            # Derive project name from last cwd segment
-            project = Path(cwd).name.lower().replace("_", "-")
+            cwd = cwd or os.getcwd()
+            known = store.list_projects()
+            project = resolve_project(cwd, known)
+            if not project:
+                # Derive project name from last cwd segment
+                project = Path(cwd).name.lower().replace("_", "-")
 
-    result = store.add(
-        content=content,
-        source_file="mcp:mem_save",
-        project=project,
-        section=section,
-    )
+        result = store.add(
+            content=content,
+            source_file="mcp:mem_save",
+            project=project,
+            section=section,
+        )
 
-    if result is None:
-        return f"Memory already exists for project '{project}'."
+        if result is None:
+            return f"Memory already exists for project '{project}'."
 
-    return (
-        f"Saved to '{project}'"
-        + (f" / {section}" if section else "")
-        + f" (id: {result})"
-    )
+        return (
+            f"Saved to '{project}'"
+            + (f" / {section}" if section else "")
+            + f" (id: {result})"
+        )
+    finally:
+        store.close()
 
 
 @mcp.tool()
@@ -220,15 +233,18 @@ def mem_get(memory_id: int) -> str:
         memory_id: The ID of the memory to retrieve (shown in search results)
     """
     store = get_store()
-    mem = store.get(memory_id)
-    if not mem:
-        return f"Memory {memory_id} not found."
+    try:
+        mem = store.get(memory_id)
+        if not mem:
+            return f"Memory {memory_id} not found."
 
-    section = f" / {mem.section}" if mem.section else ""
-    return (
-        f"## {mem.project}{section} (id: {mem.id})\n\n"
-        f"{mem.content}"
-    )
+        section = f" / {mem.section}" if mem.section else ""
+        return (
+            f"## {mem.project}{section} (id: {mem.id})\n\n"
+            f"{mem.content}"
+        )
+    finally:
+        store.close()
 
 
 @mcp.tool()
@@ -250,26 +266,29 @@ def mem_update(
         project: New project name (keeps current if omitted)
     """
     store = get_store()
-    mem = store.get(memory_id)
-    if not mem:
-        return f"Memory {memory_id} not found."
+    try:
+        mem = store.get(memory_id)
+        if not mem:
+            return f"Memory {memory_id} not found."
 
-    updated = store.update(
-        memory_id=memory_id,
-        content=content,
-        section=section,
-        project=project,
-    )
-    if not updated:
-        return f"Failed to update memory {memory_id}."
+        updated = store.update(
+            memory_id=memory_id,
+            content=content,
+            section=section,
+            project=project,
+        )
+        if not updated:
+            return f"Failed to update memory {memory_id}."
 
-    new_section = section if section is not None else mem.section
-    new_project = project if project is not None else mem.project
-    return (
-        f"Updated memory {memory_id}: "
-        f"{new_project}"
-        + (f" / {new_section}" if new_section else "")
-    )
+        new_section = section if section is not None else mem.section
+        new_project = project if project is not None else mem.project
+        return (
+            f"Updated memory {memory_id}: "
+            f"{new_project}"
+            + (f" / {new_section}" if new_section else "")
+        )
+    finally:
+        store.close()
 
 
 @mcp.tool()
@@ -283,15 +302,18 @@ def mem_forget(memory_id: int) -> str:
         memory_id: The ID of the memory to delete (shown in search results)
     """
     store = get_store()
-    mem = store.get(memory_id)
-    if not mem:
-        return f"Memory {memory_id} not found."
+    try:
+        mem = store.get(memory_id)
+        if not mem:
+            return f"Memory {memory_id} not found."
 
-    store.delete(memory_id)
-    return (
-        f"Deleted memory {memory_id}: "
-        f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
-    )
+        store.delete(memory_id)
+        return (
+            f"Deleted memory {memory_id}: "
+            f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
+        )
+    finally:
+        store.close()
 
 
 @mcp.tool()
@@ -302,20 +324,23 @@ def mem_ingest() -> str:
     searchable index. Run this when you know memory files have changed.
     """
     store = get_store()
-    claude_added = ingest_claude_memory(store)
-    gemini_added = ingest_gemini_memory(store)
-    copilot_added = ingest_copilot_memory(store)
-    total = store.count()
-    stats = store.stats()
+    try:
+        claude_added = ingest_claude_memory(store)
+        gemini_added = ingest_gemini_memory(store)
+        copilot_added = ingest_copilot_memory(store)
+        total = store.count()
+        stats = store.stats()
 
-    lines = [
-        f"Ingested: {claude_added + gemini_added + copilot_added} new memories ({total} total)",
-        f"Projects ({len(stats)}):",
-    ]
-    for proj, count in stats.items():
-        lines.append(f"  {proj}: {count}")
+        lines = [
+            f"Ingested: {claude_added + gemini_added + copilot_added} new memories ({total} total)",
+            f"Projects ({len(stats)}):",
+        ]
+        for proj, count in stats.items():
+            lines.append(f"  {proj}: {count}")
 
-    return "\n".join(lines)
+        return "\n".join(lines)
+    finally:
+        store.close()
 
 
 @mcp.tool()
@@ -335,23 +360,26 @@ def mem_init(cwd: str | None = None, project: str | None = None) -> str:
     from crossmem.ingest import derive_project_name
 
     store = get_store()
-    project_dir = Path(cwd) if cwd else Path(os.getcwd())
+    try:
+        project_dir = Path(cwd) if cwd else Path(os.getcwd())
 
-    if not project:
-        project = derive_project_name(project_dir)
+        if not project:
+            project = derive_project_name(project_dir)
 
-    added = ingest_project_docs(store, project_dir, project=project)
-    total = len(store.get_by_project(project))
+        added = ingest_project_docs(store, project_dir, project=project)
+        total = len(store.get_by_project(project))
 
-    if added == 0 and total > 0:
-        return f"'{project}' already up to date ({total} memories)."
-    elif added == 0:
-        return (
-            f"No documentation files found in {project_dir}.\n"
-            "Looked for: README.md, CLAUDE.md, CONTRIBUTING.md, "
-            "ARCHITECTURE.md, .github/copilot-instructions.md"
-        )
-    return f"Initialized '{project}': {added} new memories ({total} total)"
+        if added == 0 and total > 0:
+            return f"'{project}' already up to date ({total} memories)."
+        elif added == 0:
+            return (
+                f"No documentation files found in {project_dir}.\n"
+                "Looked for: README.md, CLAUDE.md, CONTRIBUTING.md, "
+                "ARCHITECTURE.md, .github/copilot-instructions.md"
+            )
+        return f"Initialized '{project}': {added} new memories ({total} total)"
+    finally:
+        store.close()
 
 
 def main() -> None:

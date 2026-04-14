@@ -412,3 +412,24 @@ class TestIngestProjectDocs:
         assert added == 1
         memories = store.get_by_project("cool-project")
         assert len(memories) == 1
+
+    def test_strips_crossmem_markers_from_copilot_instructions(self, tmp_path: Path) -> None:
+        """Crossmem-injected blocks in copilot-instructions.md must be stripped
+        during ingestion to prevent feedback loops (install-hook → ingest → recall → duplicate)."""
+        ghdir = tmp_path / ".github"
+        ghdir.mkdir()
+        (ghdir / "copilot-instructions.md").write_text(
+            "# My Project\nActual project docs here.\n\n"
+            "<!-- crossmem:auto-injected 2026-04-14T22:00:00 "
+            "— regenerate: crossmem install-hook --tool copilot -->\n"
+            "# crossmem: my-project\n\n"
+            "- Some recalled memory [Section]\n"
+            "<!-- crossmem:end -->\n"
+        )
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_project_docs(store, tmp_path, project="my-proj")
+        assert added == 1
+        mem = store.get_by_project("my-proj")[0]
+        assert "crossmem:auto-injected" not in mem.content
+        assert "crossmem:end" not in mem.content
+        assert "Actual project docs" in mem.content

@@ -78,13 +78,12 @@ class TestMemSave:
         import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
-        self._original = srv._store
-        srv._store = self._store
+        self._store.close = lambda: None  # no-op: tools call close() after each call
+        self._patcher = patch("crossmem.server.get_store", return_value=self._store)
+        self._patcher.start()
 
     def teardown_method(self) -> None:
-        import crossmem.server as srv
-
-        srv._store = self._original
+        self._patcher.stop()
 
     def test_save_with_explicit_project(self) -> None:
         result = mem_save(content="Use retry with backoff", project="my-app")
@@ -132,13 +131,12 @@ class TestMemForget:
         import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
-        self._original = srv._store
-        srv._store = self._store
+        self._store.close = lambda: None  # no-op: tools call close() after each call
+        self._patcher = patch("crossmem.server.get_store", return_value=self._store)
+        self._patcher.start()
 
     def teardown_method(self) -> None:
-        import crossmem.server as srv
-
-        srv._store = self._original
+        self._patcher.stop()
 
     def test_forget_by_id(self) -> None:
         mem_save(content="Will be deleted", project="my-app")
@@ -164,13 +162,12 @@ class TestMemUpdate:
         import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
-        self._original = srv._store
-        srv._store = self._store
+        self._store.close = lambda: None  # no-op: tools call close() after each call
+        self._patcher = patch("crossmem.server.get_store", return_value=self._store)
+        self._patcher.start()
 
     def teardown_method(self) -> None:
-        import crossmem.server as srv
-
-        srv._store = self._original
+        self._patcher.stop()
 
     def test_update_content(self) -> None:
         mem_save(content="old info", project="my-app", section="Config")
@@ -210,13 +207,12 @@ class TestMemGet:
         import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
-        self._original = srv._store
-        srv._store = self._store
+        self._store.close = lambda: None  # no-op: tools call close() after each call
+        self._patcher = patch("crossmem.server.get_store", return_value=self._store)
+        self._patcher.start()
 
     def teardown_method(self) -> None:
-        import crossmem.server as srv
-
-        srv._store = self._original
+        self._patcher.stop()
 
     def test_get_returns_full_content(self) -> None:
         long_content = "A" * 500
