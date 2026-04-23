@@ -129,6 +129,25 @@ class TestBuildFtsQuery:
         result = MemoryStore._build_fts_query('"exact phrase" pre-commit hooks')
         assert result == '"exact phrase" AND "pre-commit" AND hooks'
 
+    def test_underscored_word_quoted(self) -> None:
+        # FTS5 unicode61 treats "_" as token separator — quote to prevent splitting
+        result = MemoryStore._build_fts_query("_e2e_test")
+        assert result == '"_e2e_test"'
+
+    def test_leading_underscore_quoted(self) -> None:
+        result = MemoryStore._build_fts_query("normal_word other")
+        assert result == '"normal_word" AND other'
+
+    def test_underscore_no_false_positive(self, store: MemoryStore) -> None:
+        # Searching for "_unique_token" must not match unrelated content containing "unique"
+        store.add("unrelated content about unique topics", "f.md", "other", "Sec")
+        store.add("target content _unique_token here", "f.md", "target", "Sec")
+        results = store.search("_unique_token", limit=10)
+        projects = [r.memory.project for r in results]
+        assert "target" in projects
+        # "other" memory must NOT appear — it only contains "unique", not "_unique_token"
+        assert "other" not in projects
+
     def test_or_mode(self) -> None:
         result = MemoryStore._build_fts_query("credential masking", or_mode=True)
         assert result == "credential OR masking"
@@ -295,6 +314,68 @@ class TestUpsert:
         store.upsert("new discoverable term", "f.md", "proj", "S")
         assert len(store.search("old")) == 0
         assert len(store.search("discoverable")) == 1
+
+
+class TestSchemaMigration:
+    def test_fresh_db_gets_version_1(self, tmp_path: Path) -> None:
+        store = MemoryStore(db_path=tmp_path / "fresh.db")
+        row = store.db.execute(
+            "SELECT MAX(version) AS v FROM schema_version"
+        ).fetchone()
+        assert row["v"] == 1
+        store.close()
+
+    def test_preexisting_db_upgraded(self, tmp_path: Path) -> None:
+        """A DB created before the migration table gets upgraded seamlessly."""
+        import sqlite3
+
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(str(db_path))
+        # Simulate a legacy DB: create the tables without schema_version
+        conn.executescript("""
+            CREATE TABLE memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                project TEXT NOT NULL,
+                section TEXT NOT NULL DEFAULT '',
+                content_hash TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(content_hash, project)
+            );
+            CREATE VIRTUAL TABLE memories_fts USING fts5(
+                content, project, section,
+                content='memories', content_rowid='id',
+                tokenize='porter unicode61'
+            );
+        """)
+        conn.execute(
+            "INSERT INTO memories (content, source_file, project, section, content_hash) "
+            "VALUES ('legacy data', 'f.md', 'proj', '', 'abc123')"
+        )
+        conn.commit()
+        conn.close()
+
+        # Open with MemoryStore — should migrate without data loss
+        store = MemoryStore(db_path=db_path)
+        assert store.count() == 1
+        mem = store.get(1)
+        assert mem.content == "legacy data"
+        row = store.db.execute(
+            "SELECT MAX(version) AS v FROM schema_version"
+        ).fetchone()
+        assert row["v"] == 1
+        store.close()
+
+    def test_reopening_db_is_idempotent(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "reopen.db"
+        store1 = MemoryStore(db_path=db_path)
+        store1.add("test", "f.md", "proj")
+        store1.close()
+
+        store2 = MemoryStore(db_path=db_path)
+        assert store2.count() == 1
+        store2.close()
 
 
 class TestStats:

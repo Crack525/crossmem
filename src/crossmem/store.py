@@ -53,8 +53,13 @@ class MemoryStore:
         self.db.execute("PRAGMA busy_timeout=30000")
         self._init_schema()
 
-    def _init_schema(self) -> None:
-        self.db.executescript("""
+    # -- Schema migrations ------------------------------------------------
+    # Each entry is (version, sql).  Versions are applied in order.
+    # Existing databases that pre-date the migration table are treated as
+    # version 0 (the original schema already exists; migration 1 is a no-op
+    # for them because every statement uses IF NOT EXISTS).
+    _MIGRATIONS: list[tuple[int, str]] = [
+        (1, """
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 content TEXT NOT NULL,
@@ -91,7 +96,29 @@ class MemoryStore:
                 INSERT INTO memories_fts(rowid, content, project, section)
                 VALUES (new.id, new.content, new.project, new.section);
             END;
+        """),
+    ]
+
+    def _init_schema(self) -> None:
+        # Ensure the version-tracking table exists
+        self.db.execute("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY
+            )
         """)
+        row = self.db.execute(
+            "SELECT MAX(version) AS v FROM schema_version"
+        ).fetchone()
+        current = row["v"] or 0
+
+        for version, sql in self._MIGRATIONS:
+            if version > current:
+                self.db.executescript(sql)
+                self.db.execute(
+                    "INSERT INTO schema_version (version) VALUES (?)",
+                    (version,),
+                )
+                self.db.commit()
 
     def add(
         self,
@@ -213,9 +240,10 @@ class MemoryStore:
         parts = [f'"{p}"' for p in phrases]
         if remaining:
             words = remaining.split()
-            # Quote hyphenated words — FTS5 interprets "-" as column filter
-            # e.g. "sub-agent" becomes column:sub term:agent → crash
-            parts.extend(f'"{w}"' if "-" in w else w for w in words)
+            # Quote hyphenated or underscored words — FTS5 interprets "-" as column
+            # filter and "_" as token separator (unicode61 tokenizer), both cause
+            # incorrect query expansion or wrong token splitting.
+            parts.extend(f'"{w}"' if ("-" in w or "_" in w) else w for w in words)
 
         if not parts:
             return query
@@ -319,14 +347,6 @@ class MemoryStore:
             content_hash=row["content_hash"],
             created_at=row["created_at"],
         )
-
-    def get_saved_memories(self) -> list[tuple[str, str, str]]:
-        """Return (project, section, content) tuples for memories saved via mem_save."""
-        rows = self.db.execute(
-            "SELECT project, section, content FROM memories"
-            " WHERE source_file = 'mcp:mem_save' ORDER BY project, section"
-        ).fetchall()
-        return [(row["project"], row["section"], row["content"]) for row in rows]
 
     def list_projects(self) -> list[str]:
         """Return all distinct project names."""

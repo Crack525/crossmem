@@ -176,6 +176,9 @@ crossmem install-instructions                      # Gemini
 # Internal (installed as hooks — not run manually)
 crossmem prompt-search                             # mid-session recall via UserPromptSubmit
 
+# Diagnose
+crossmem doctor       # health check: binary, DB, hooks, Gemini, FTS index
+
 # Other
 crossmem ingest       # re-ingest tool memories
 crossmem graph        # visualize knowledge graph in browser

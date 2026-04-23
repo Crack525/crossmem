@@ -75,7 +75,6 @@ class TestResolveProject:
 
 class TestMemSave:
     def setup_method(self) -> None:
-        import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
         self._store.close = lambda: None  # no-op: tools call close() after each call
@@ -128,7 +127,6 @@ class TestMemSave:
 
 class TestMemForget:
     def setup_method(self) -> None:
-        import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
         self._store.close = lambda: None  # no-op: tools call close() after each call
@@ -159,7 +157,6 @@ class TestMemForget:
 
 class TestMemUpdate:
     def setup_method(self) -> None:
-        import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
         self._store.close = lambda: None  # no-op: tools call close() after each call
@@ -204,7 +201,6 @@ class TestMemUpdate:
 
 class TestMemGet:
     def setup_method(self) -> None:
-        import crossmem.server as srv
 
         self._store = MemoryStore(db_path=Path(":memory:"))
         self._store.close = lambda: None  # no-op: tools call close() after each call

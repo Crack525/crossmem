@@ -6,18 +6,17 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from crossmem.cli import (
+from crossmem.cli import main
+from crossmem.commands.hooks import (
     COPILOT_CONTENT_MARKER_END,
     COPILOT_CONTENT_MARKER_START,
     INSTRUCTION_MARKER,
     _build_copilot_block,
-    _claude_settings_path,
     _copilot_global_path,
     _inject_copilot_block,
     _parse_block_timestamp,
     _source_tier,
     _strip_copilot_block,
-    main,
 )
 from crossmem.store import Memory, MemoryStore, SearchResult
 
@@ -59,7 +58,7 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["recall", "-p", "backend-api"])
 
         assert result.exit_code == 0
@@ -76,8 +75,8 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
-            patch("crossmem.cli.os.getcwd", return_value=str(empty_dir)),
+            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch("crossmem.commands.hooks.os.getcwd", return_value=str(empty_dir)),
         ):
             result = runner.invoke(main, ["recall", "-p", "nonexistent"])
 
@@ -91,8 +90,8 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
-            patch("crossmem.cli.os.getcwd", return_value="/Users/foo/backend-api"),
+            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch("crossmem.commands.hooks.os.getcwd", return_value="/Users/foo/backend-api"),
         ):
             result = runner.invoke(main, ["recall"])
 
@@ -109,8 +108,8 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
-            patch("crossmem.cli.os.getcwd", return_value=str(empty_dir)),
+            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch("crossmem.commands.hooks.os.getcwd", return_value=str(empty_dir)),
         ):
             result = runner.invoke(main, ["recall"])
 
@@ -126,8 +125,8 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
-            patch("crossmem.cli.os.getcwd", return_value=str(project_dir)),
+            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch("crossmem.commands.hooks.os.getcwd", return_value=str(project_dir)),
         ):
             result = runner.invoke(main, ["recall"])
 
@@ -145,8 +144,8 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
-            patch("crossmem.cli.os.getcwd", return_value=str(project_dir)),
+            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch("crossmem.commands.hooks.os.getcwd", return_value=str(project_dir)),
         ):
             result = runner.invoke(main, ["recall", "-p", "my-proj"])
 
@@ -161,7 +160,7 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["recall", "-p", "big-project", "--budget", "300"])
 
         assert result.exit_code == 0
@@ -174,7 +173,7 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["recall", "-p", "backend-api"])
 
         assert result.exit_code == 0
@@ -188,7 +187,7 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["recall", "-p", "proj", "--budget", "5000"])
 
         lines = [x for x in result.output.split("\n") if x.startswith("- ")]
@@ -203,7 +202,7 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["recall", "-p", "proj", "--budget", "5000"])
 
         lines = [x for x in result.output.split("\n") if x.startswith("- ")]
@@ -217,7 +216,7 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["recall", "-p", "proj", "--budget", "150"])
 
         assert "security" in result.output.lower()
@@ -230,8 +229,8 @@ class TestInstallHook:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
-            patch("crossmem.cli._find_crossmem_bin", return_value="/usr/local/bin/crossmem"),
+            patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
+            patch("crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"),
         ):
             result = runner.invoke(main, ["install-hook"])
 
@@ -257,8 +256,8 @@ class TestInstallHook:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
-            patch("crossmem.cli._find_crossmem_bin", return_value="crossmem"),
+            patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
+            patch("crossmem.commands.hooks._find_crossmem_bin", return_value="crossmem"),
         ):
             result = runner.invoke(main, ["install-hook"])
 
@@ -279,8 +278,8 @@ class TestInstallHook:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
-            patch("crossmem.cli._find_crossmem_bin", return_value="crossmem"),
+            patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
+            patch("crossmem.commands.hooks._find_crossmem_bin", return_value="crossmem"),
         ):
             result = runner.invoke(main, ["install-hook"])
 
@@ -301,8 +300,8 @@ class TestInstallHook:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
-            patch("crossmem.cli._find_crossmem_bin", return_value="/new/crossmem"),
+            patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
+            patch("crossmem.commands.hooks._find_crossmem_bin", return_value="/new/crossmem"),
         ):
             result = runner.invoke(main, ["install-hook"])
 
@@ -326,8 +325,8 @@ class TestInstallHook:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
-            patch("crossmem.cli._find_crossmem_bin", return_value="crossmem"),
+            patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
+            patch("crossmem.commands.hooks._find_crossmem_bin", return_value="crossmem"),
         ):
             result = runner.invoke(main, ["install-hook"])
 
@@ -350,7 +349,7 @@ class TestInstallHook:
         }))
 
         runner = CliRunner()
-        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+        with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
             result = runner.invoke(main, ["install-hook", "--uninstall"])
 
         assert result.exit_code == 0
@@ -370,7 +369,7 @@ class TestInstallHook:
         }))
 
         runner = CliRunner()
-        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+        with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
             result = runner.invoke(main, ["install-hook", "--uninstall"])
 
         assert result.exit_code == 0
@@ -382,7 +381,7 @@ class TestInstallHook:
         settings_path.write_text(json.dumps({"model": "opus"}))
 
         runner = CliRunner()
-        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+        with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
             result = runner.invoke(main, ["install-hook", "--uninstall"])
 
         assert result.exit_code == 0
@@ -393,8 +392,8 @@ class TestInstallHook:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
-            patch("crossmem.cli._find_crossmem_bin", return_value="crossmem"),
+            patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
+            patch("crossmem.commands.hooks._find_crossmem_bin", return_value="crossmem"),
         ):
             result = runner.invoke(main, ["install-hook", "--dry-run"])
 
@@ -411,7 +410,7 @@ class TestInstallHook:
         }))
 
         runner = CliRunner()
-        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+        with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
             result = runner.invoke(main, ["install-hook", "--uninstall", "--dry-run"])
 
         assert result.exit_code == 0
@@ -425,7 +424,7 @@ class TestInstallHook:
         settings_path.write_text("{broken json,,}")
 
         runner = CliRunner()
-        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+        with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
             result = runner.invoke(main, ["install-hook"])
 
         assert result.exit_code != 0
@@ -439,8 +438,8 @@ class TestInstallInstructions:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
         ):
             result = runner.invoke(main, ["install-instructions"])
 
@@ -456,8 +455,8 @@ class TestInstallInstructions:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
         ):
             result = runner.invoke(main, ["install-instructions"])
 
@@ -472,8 +471,8 @@ class TestInstallInstructions:
         """Running install-instructions twice on Gemini is idempotent."""
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
         ):
             runner.invoke(main, ["install-instructions"])
             result = runner.invoke(main, ["install-instructions"])
@@ -486,8 +485,8 @@ class TestInstallInstructions:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
         ):
             runner.invoke(main, ["install-instructions"])
             result = runner.invoke(main, ["install-instructions", "--uninstall"])
@@ -501,8 +500,8 @@ class TestInstallInstructions:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
         ):
             result = runner.invoke(main, ["install-instructions", "--dry-run"])
 
@@ -515,8 +514,8 @@ class TestInstallInstructions:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
         ):
             result = runner.invoke(main, ["install-instructions"])
 
@@ -585,7 +584,7 @@ class TestCopilotHookHelpers:
         block = _build_copilot_block("same memory")
         _inject_copilot_block(target, block, dry_run=False)
         first = target.read_text()
-        changed = _inject_copilot_block(target, block, dry_run=False)
+        _inject_copilot_block(target, block, dry_run=False)
         second = target.read_text()
         # Content is the same; changed flag may be False on identical block
         assert first == second
@@ -629,8 +628,8 @@ class TestInstallHookCopilot:
         copilot_path = tmp_path / ".github" / "copilot-instructions.md"
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(main, ["install-hook", "--tool", "copilot"])
 
@@ -644,8 +643,8 @@ class TestInstallHookCopilot:
     def test_workspace_injection_idempotent(self, tmp_path: Path) -> None:
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             runner.invoke(main, ["install-hook", "--tool", "copilot"])
             result = runner.invoke(main, ["install-hook", "--tool", "copilot"])
@@ -658,8 +657,8 @@ class TestInstallHookCopilot:
         copilot_path = tmp_path / ".github" / "copilot-instructions.md"
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(main, ["install-hook", "--tool", "copilot", "--dry-run"])
 
@@ -670,8 +669,8 @@ class TestInstallHookCopilot:
     def test_no_memories_prints_message(self, tmp_path: Path) -> None:
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=None),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=None),
         ):
             result = runner.invoke(main, ["install-hook", "--tool", "copilot"])
 
@@ -685,7 +684,7 @@ class TestInstallHookCopilot:
         copilot_path.write_text("# Keep this\n\n" + block)
 
         runner = CliRunner()
-        with patch("crossmem.cli.Path.cwd", return_value=tmp_path):
+        with patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot", "--uninstall"]
             )
@@ -698,7 +697,7 @@ class TestInstallHookCopilot:
 
     def test_uninstall_no_block_reports_not_found(self, tmp_path: Path) -> None:
         runner = CliRunner()
-        with patch("crossmem.cli.Path.cwd", return_value=tmp_path):
+        with patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot", "--uninstall"]
             )
@@ -709,9 +708,9 @@ class TestInstallHookCopilot:
         fake_global = tmp_path / "prompts" / "copilot-instructions.md"
         runner = CliRunner()
         with (
-            patch("crossmem.cli._copilot_global_path", return_value=fake_global),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._copilot_global_path", return_value=fake_global),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
         ):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot", "--global"]
@@ -725,7 +724,7 @@ class TestInstallHookCopilot:
         """Existing --tool claude (default) behavior is unchanged."""
         settings_path = tmp_path / ".claude" / "settings.json"
         runner = CliRunner()
-        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+        with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
             result = runner.invoke(main, ["install-hook"])
         assert result.exit_code == 0
         assert settings_path.exists()
@@ -734,7 +733,7 @@ class TestInstallHookCopilot:
         """--if-stale is a copilot-only option; warn when used with --tool claude."""
         settings_path = tmp_path / ".claude" / "settings.json"
         runner = CliRunner()
-        with patch("crossmem.cli._claude_settings_path", return_value=settings_path):
+        with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
             result = runner.invoke(main, ["install-hook", "--tool", "claude", "--if-stale"])
         assert result.exit_code == 0
         assert "Warning" in result.output
@@ -748,8 +747,8 @@ class TestRecallFormatCopilot:
     def test_format_copilot_wraps_in_markers(self, tmp_path: Path) -> None:
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(main, ["recall", "--format", "copilot"])
 
@@ -760,8 +759,8 @@ class TestRecallFormatCopilot:
     def test_format_text_default_no_markers(self, tmp_path: Path) -> None:
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(main, ["recall"])
 
@@ -774,7 +773,6 @@ class TestParseBlockTimestamp:
     """Tests for _parse_block_timestamp()."""
 
     def test_parses_iso_timestamp(self) -> None:
-        from crossmem.cli import _parse_block_timestamp
         import datetime
         content = f"{COPILOT_CONTENT_MARKER_START} 2026-04-12T14:32:07 — regenerate: ...\ncontent\n{COPILOT_CONTENT_MARKER_END}"
         ts = _parse_block_timestamp(content)
@@ -782,12 +780,10 @@ class TestParseBlockTimestamp:
 
     def test_returns_none_for_date_only_header(self) -> None:
         """Old-format date-only block returns None — treated as stale."""
-        from crossmem.cli import _parse_block_timestamp
         content = f"{COPILOT_CONTENT_MARKER_START} 2026-04-12 — regenerate: ...\ncontent\n{COPILOT_CONTENT_MARKER_END}"
         assert _parse_block_timestamp(content) is None
 
     def test_returns_none_when_no_block(self) -> None:
-        from crossmem.cli import _parse_block_timestamp
         assert _parse_block_timestamp("# No markers here") is None
 
     def test_build_block_now_contains_time_component(self) -> None:
@@ -819,8 +815,8 @@ class TestIfStale:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot", "--if-stale", "--max-age", "30"]
@@ -839,8 +835,8 @@ class TestIfStale:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot", "--if-stale", "--max-age", "30"]
@@ -854,8 +850,8 @@ class TestIfStale:
         """No existing block with --if-stale should inject (first run)."""
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot", "--if-stale"]
@@ -877,8 +873,8 @@ class TestIfStale:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot", "--if-stale"]
@@ -895,8 +891,8 @@ class TestIfStale:
 
         runner = CliRunner()
         with (
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=self.FAKE_RECALL),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
             result = runner.invoke(
                 main, ["install-hook", "--tool", "copilot"]
@@ -913,12 +909,12 @@ class TestSetup:
     def test_setup_runs_all_four_steps(self, tmp_path: Path) -> None:
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path",
+            patch("crossmem.commands.hooks._claude_settings_path",
                   return_value=tmp_path / ".claude" / "settings.json"),
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
-            patch("crossmem.cli.MemoryStore"),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.commands.core.MemoryStore"),
         ):
             result = runner.invoke(main, ["setup"])
 
@@ -933,11 +929,11 @@ class TestSetup:
         settings_path = tmp_path / ".claude" / "settings.json"
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path", return_value=settings_path),
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
-            patch("crossmem.cli.MemoryStore"),
+            patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.commands.core.MemoryStore"),
         ):
             runner.invoke(main, ["setup"])
 
@@ -947,12 +943,12 @@ class TestSetup:
         copilot_path = tmp_path / ".github" / "copilot-instructions.md"
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path",
+            patch("crossmem.commands.hooks._claude_settings_path",
                   return_value=tmp_path / ".claude" / "settings.json"),
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
-            patch("crossmem.cli.MemoryStore"),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.commands.core.MemoryStore"),
         ):
             runner.invoke(main, ["setup"])
 
@@ -963,12 +959,12 @@ class TestSetup:
         gemini_path = tmp_path / ".gemini" / "GEMINI.md"
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path",
+            patch("crossmem.commands.hooks._claude_settings_path",
                   return_value=tmp_path / ".claude" / "settings.json"),
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value="# crossmem\n- pat\n"),
-            patch("crossmem.cli.MemoryStore"),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch("crossmem.commands.core.MemoryStore"),
         ):
             runner.invoke(main, ["setup"])
 
@@ -979,12 +975,12 @@ class TestSetup:
         """setup should not fail if no memories exist yet (Copilot step skipped)."""
         runner = CliRunner()
         with (
-            patch("crossmem.cli._claude_settings_path",
+            patch("crossmem.commands.hooks._claude_settings_path",
                   return_value=tmp_path / ".claude" / "settings.json"),
-            patch("crossmem.cli.Path.cwd", return_value=tmp_path),
-            patch("crossmem.cli.Path.home", return_value=tmp_path),
-            patch("crossmem.cli._get_recall_content", return_value=None),
-            patch("crossmem.cli.MemoryStore"),
+            patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
+            patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
+            patch("crossmem.commands.hooks._get_recall_content", return_value=None),
+            patch("crossmem.commands.core.MemoryStore"),
         ):
             result = runner.invoke(main, ["setup"])
 
@@ -1001,7 +997,7 @@ class TestInit:
         )
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["init", "--path", str(project_dir)])
 
         assert result.exit_code == 0
@@ -1015,7 +1011,7 @@ class TestInit:
 
         db_path = tmp_path / "test.db"
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["init", "-p", "payments", "--path", str(tmp_path)])
 
         assert result.exit_code == 0
@@ -1031,7 +1027,7 @@ class TestInit:
         empty_dir.mkdir()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["init", "--path", str(empty_dir)])
 
         assert result.exit_code == 0
@@ -1044,9 +1040,9 @@ class TestInit:
 
         db_path = tmp_path / "test.db"
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result1 = runner.invoke(main, ["init", "-p", "proj", "--path", str(tmp_path)])
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result2 = runner.invoke(main, ["init", "-p", "proj", "--path", str(tmp_path)])
 
         assert "1 new memories" in result1.output
@@ -1061,7 +1057,7 @@ class TestInit:
         )
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
             result = runner.invoke(main, ["init", "-p", "lib", "--path", str(tmp_path)])
 
         assert result.exit_code == 0
@@ -1078,7 +1074,7 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how should I handle credentials in this service"})
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1093,7 +1089,7 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "hi"})
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1108,7 +1104,7 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "what is the weather like in Tokyo today"})
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1140,7 +1136,7 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how do we handle JWT token rotation in our auth"})
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1157,7 +1153,7 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how do we rotate credentials?"})
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1173,7 +1169,7 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how to use pytest::fixture with (scope=session)?"})
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         # Key assertion: no crash from FTS5 special characters
@@ -1189,7 +1185,7 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "do it now"})
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1205,7 +1201,7 @@ class TestPromptSearch:
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=mock_store):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1221,7 +1217,7 @@ class TestPromptSearch:
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=mock_store):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1237,7 +1233,7 @@ class TestPromptSearch:
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=mock_store):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1259,7 +1255,7 @@ class TestPromptSearchVscodeFormat:
             "sessionId": "test",
         })
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=mock_store):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1277,7 +1273,7 @@ class TestPromptSearchVscodeFormat:
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=mock_store):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=mock_store):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1295,7 +1291,7 @@ class TestRecallVscodeFormat:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.cli.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
             result = runner.invoke(main, ["recall", "-p", "test-proj", "--format", "vscode"])
 
         assert result.exit_code == 0
@@ -1308,7 +1304,7 @@ class TestInstallHookCopilotAgent:
     def test_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        with patch("crossmem.cli._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
+        with patch("crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
             result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent", "--dry-run"])
 
         assert result.exit_code == 0
@@ -1320,7 +1316,7 @@ class TestInstallHookCopilotAgent:
     def test_install_creates_file(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        with patch("crossmem.cli._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
+        with patch("crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
             result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent"])
 
         assert result.exit_code == 0
