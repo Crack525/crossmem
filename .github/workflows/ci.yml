@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -39,5 +40,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - name: Verify tag matches pyproject version
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected_tag = f"v{version}"
+
+          if tag != expected_tag:
+              raise SystemExit(
+                  f"Refusing publish: git tag is {tag}, but pyproject version is {version} (expected {expected_tag})."
+              )
+          PY
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1
