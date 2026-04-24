@@ -1178,7 +1178,9 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how should I handle credentials in this service"})
 
         runner = CliRunner()
-        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)
+        ):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
