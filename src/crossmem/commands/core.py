@@ -42,6 +42,10 @@ def ingest() -> None:
 @click.option("-n", "--limit", default=10, help="Max results")
 def search(query: str, project: str | None, limit: int) -> None:
     """Search across all project memories."""
+    if not query or not query.strip():
+        click.echo("Query cannot be empty. Use `crossmem recall` to list all memories.")
+        return
+
     store = MemoryStore()
     try:
         results = store.search(query, limit=limit, project=project)
