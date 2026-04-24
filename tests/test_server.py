@@ -27,33 +27,23 @@ class TestResolveProject:
         assert result == "backend-api"
 
     def test_prefers_rightmost_segment(self) -> None:
-        result = resolve_project(
-            "/Users/foo/mobile-app/backend-api", KNOWN_PROJECTS
-        )
+        result = resolve_project("/Users/foo/mobile-app/backend-api", KNOWN_PROJECTS)
         assert result == "backend-api"
 
     def test_suffix_match(self) -> None:
-        result = resolve_project(
-            "/Users/foo/my-auth-service", KNOWN_PROJECTS
-        )
+        result = resolve_project("/Users/foo/my-auth-service", KNOWN_PROJECTS)
         assert result == "auth-service"
 
     def test_fuzzy_combined_segments(self) -> None:
-        result = resolve_project(
-            "/Users/foo/Documents/DS/WORKSPACE", KNOWN_PROJECTS
-        )
+        result = resolve_project("/Users/foo/Documents/DS/WORKSPACE", KNOWN_PROJECTS)
         assert result == "DS-WORKSPACE"
 
     def test_exact_match_hyphenated_segment(self) -> None:
-        result = resolve_project(
-            "/Users/foo/ACME-dashboard/frontend", KNOWN_PROJECTS
-        )
+        result = resolve_project("/Users/foo/ACME-dashboard/frontend", KNOWN_PROJECTS)
         assert result == "ACME-dashboard"
 
     def test_case_insensitive(self) -> None:
-        result = resolve_project(
-            "/Users/foo/Mobile-App", KNOWN_PROJECTS
-        )
+        result = resolve_project("/Users/foo/Mobile-App", KNOWN_PROJECTS)
         assert result == "mobile-app"
 
     def test_underscore_matches_hyphen(self) -> None:
@@ -178,9 +168,7 @@ class TestMemUpdate:
     def test_update_section(self) -> None:
         mem_save(content="misplaced", project="my-app", section="Research")
         memories = self._store.get_by_project("my-app")
-        result = mem_update(
-            memory_id=memories[0].id, content="corrected", section="Experiments"
-        )
+        result = mem_update(memory_id=memories[0].id, content="corrected", section="Experiments")
         assert "Experiments" in result
         mem = self._store.get(memories[0].id)
         assert mem.section == "Experiments"

@@ -213,11 +213,7 @@ def mem_save(
         if result is None:
             return f"Memory already exists for project '{project}'."
 
-        return (
-            f"Saved to '{project}'"
-            + (f" / {section}" if section else "")
-            + f" (id: {result})"
-        )
+        return f"Saved to '{project}'" + (f" / {section}" if section else "") + f" (id: {result})"
     finally:
         store.close()
 
@@ -239,10 +235,7 @@ def mem_get(memory_id: int) -> str:
             return f"Memory {memory_id} not found."
 
         section = f" / {mem.section}" if mem.section else ""
-        return (
-            f"## {mem.project}{section} (id: {mem.id})\n\n"
-            f"{mem.content}"
-        )
+        return f"## {mem.project}{section} (id: {mem.id})\n\n{mem.content}"
     finally:
         store.close()
 
@@ -282,10 +275,8 @@ def mem_update(
 
         new_section = section if section is not None else mem.section
         new_project = project if project is not None else mem.project
-        return (
-            f"Updated memory {memory_id}: "
-            f"{new_project}"
-            + (f" / {new_section}" if new_section else "")
+        return f"Updated memory {memory_id}: {new_project}" + (
+            f" / {new_section}" if new_section else ""
         )
     finally:
         store.close()

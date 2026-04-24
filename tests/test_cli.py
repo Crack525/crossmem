@@ -58,7 +58,10 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["recall", "-p", "backend-api"])
 
         assert result.exit_code == 0
@@ -75,7 +78,10 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch(
+                "crossmem.commands.hooks.MemoryStore",
+                return_value=MemoryStore(db_path=tmp_path / "test.db"),
+            ),
             patch("crossmem.commands.hooks.os.getcwd", return_value=str(empty_dir)),
         ):
             result = runner.invoke(main, ["recall", "-p", "nonexistent"])
@@ -90,7 +96,10 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch(
+                "crossmem.commands.hooks.MemoryStore",
+                return_value=MemoryStore(db_path=tmp_path / "test.db"),
+            ),
             patch("crossmem.commands.hooks.os.getcwd", return_value="/Users/foo/backend-api"),
         ):
             result = runner.invoke(main, ["recall"])
@@ -108,7 +117,10 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch(
+                "crossmem.commands.hooks.MemoryStore",
+                return_value=MemoryStore(db_path=tmp_path / "test.db"),
+            ),
             patch("crossmem.commands.hooks.os.getcwd", return_value=str(empty_dir)),
         ):
             result = runner.invoke(main, ["recall"])
@@ -125,7 +137,10 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch(
+                "crossmem.commands.hooks.MemoryStore",
+                return_value=MemoryStore(db_path=tmp_path / "test.db"),
+            ),
             patch("crossmem.commands.hooks.os.getcwd", return_value=str(project_dir)),
         ):
             result = runner.invoke(main, ["recall"])
@@ -144,7 +159,10 @@ class TestRecall:
 
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")),
+            patch(
+                "crossmem.commands.hooks.MemoryStore",
+                return_value=MemoryStore(db_path=tmp_path / "test.db"),
+            ),
             patch("crossmem.commands.hooks.os.getcwd", return_value=str(project_dir)),
         ):
             result = runner.invoke(main, ["recall", "-p", "my-proj"])
@@ -156,11 +174,19 @@ class TestRecall:
     def test_budget_limits_output(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "test.db")
         for i in range(20):
-            store.add(f"Memory number {i} with enough content to pass the filter", "file.md", "big-project", "")
+            store.add(
+                f"Memory number {i} with enough content to pass the filter",
+                "file.md",
+                "big-project",
+                "",
+            )
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["recall", "-p", "big-project", "--budget", "300"])
 
         assert result.exit_code == 0
@@ -173,7 +199,10 @@ class TestRecall:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["recall", "-p", "backend-api"])
 
         assert result.exit_code == 0
@@ -182,12 +211,17 @@ class TestRecall:
     def test_tiered_ordering_mem_save_first(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "test.db")
         store.add("README intro about the project and its goals", "init:README.md", "proj", "About")
-        store.add("Always validate JWT tokens before processing", "mcp:mem_save", "proj", "Security")
+        store.add(
+            "Always validate JWT tokens before processing", "mcp:mem_save", "proj", "Security"
+        )
         store.add("Use structured logging with correlation IDs", "MEMORY.md", "proj", "Patterns")
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["recall", "-p", "proj", "--budget", "5000"])
 
         lines = [x for x in result.output.split("\n") if x.startswith("- ")]
@@ -198,11 +232,16 @@ class TestRecall:
     def test_tiered_ordering_claude_md_before_readme(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "test.db")
         store.add("Project description from the README file", "init:README.md", "proj", "About")
-        store.add("Always run ruff before committing code changes", "init:CLAUDE.md", "proj", "Rules")
+        store.add(
+            "Always run ruff before committing code changes", "init:CLAUDE.md", "proj", "Rules"
+        )
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["recall", "-p", "proj", "--budget", "5000"])
 
         lines = [x for x in result.output.split("\n") if x.startswith("- ")]
@@ -212,11 +251,19 @@ class TestRecall:
     def test_budget_prioritizes_curated_over_docs(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "test.db")
         store.add("Critical security pattern for all services", "mcp:mem_save", "proj", "Security")
-        store.add("Long README content that takes up lots of space in the budget", "init:README.md", "proj", "About")
+        store.add(
+            "Long README content that takes up lots of space in the budget",
+            "init:README.md",
+            "proj",
+            "About",
+        )
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["recall", "-p", "proj", "--budget", "150"])
 
         assert "security" in result.output.lower()
@@ -230,7 +277,9 @@ class TestInstallHook:
         runner = CliRunner()
         with (
             patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
-            patch("crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"),
+            patch(
+                "crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"
+            ),
         ):
             result = runner.invoke(main, ["install-hook"])
 
@@ -249,10 +298,14 @@ class TestInstallHook:
 
     def test_merges_with_existing_settings(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "permissions": {"allow": ["Bash(git:*)"]},
-            "model": "claude-opus-4-6",
-        }))
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "permissions": {"allow": ["Bash(git:*)"]},
+                    "model": "claude-opus-4-6",
+                }
+            )
+        )
 
         runner = CliRunner()
         with (
@@ -269,12 +322,16 @@ class TestInstallHook:
 
     def test_merges_with_existing_hooks(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {
-                "PreToolUse": [{"matcher": "other", "hooks": []}],
-                "SessionStart": [{"matcher": "existing", "hooks": []}],
-            }
-        }))
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "PreToolUse": [{"matcher": "other", "hooks": []}],
+                        "SessionStart": [{"matcher": "existing", "hooks": []}],
+                    }
+                }
+            )
+        )
 
         runner = CliRunner()
         with (
@@ -290,13 +347,20 @@ class TestInstallHook:
 
     def test_updates_existing_hook(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {
-                "SessionStart": [
-                    {"matcher": "startup", "hooks": [{"type": "command", "command": "crossmem recall"}]},
-                ]
-            }
-        }))
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "startup",
+                                "hooks": [{"type": "command", "command": "crossmem recall"}],
+                            },
+                        ]
+                    }
+                }
+            )
+        )
 
         runner = CliRunner()
         with (
@@ -315,13 +379,20 @@ class TestInstallHook:
     def test_migrates_legacy_matcher(self, tmp_path: Path) -> None:
         """Legacy installs used matcher='crossmem-recall' which never fired."""
         settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {
-                "SessionStart": [
-                    {"matcher": "crossmem-recall", "hooks": [{"type": "command", "command": "old-crossmem recall"}]},
-                ]
-            }
-        }))
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "crossmem-recall",
+                                "hooks": [{"type": "command", "command": "old-crossmem recall"}],
+                            },
+                        ]
+                    }
+                }
+            )
+        )
 
         runner = CliRunner()
         with (
@@ -339,14 +410,21 @@ class TestInstallHook:
 
     def test_uninstall_removes_hook(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {
-                "SessionStart": [
-                    {"matcher": "crossmem-recall", "hooks": [{"type": "command", "command": "crossmem recall"}]},
-                    {"matcher": "other-hook", "hooks": []},
-                ]
-            }
-        }))
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "crossmem-recall",
+                                "hooks": [{"type": "command", "command": "crossmem recall"}],
+                            },
+                            {"matcher": "other-hook", "hooks": []},
+                        ]
+                    }
+                }
+            )
+        )
 
         runner = CliRunner()
         with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
@@ -360,13 +438,17 @@ class TestInstallHook:
 
     def test_uninstall_cleans_empty_hooks(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {
-                "SessionStart": [
-                    {"matcher": "crossmem-recall", "hooks": []},
-                ]
-            }
-        }))
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {"matcher": "crossmem-recall", "hooks": []},
+                        ]
+                    }
+                }
+            )
+        )
 
         runner = CliRunner()
         with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
@@ -405,9 +487,9 @@ class TestInstallHook:
 
     def test_dry_run_uninstall(self, tmp_path: Path) -> None:
         settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {"SessionStart": [{"matcher": "crossmem-recall", "hooks": []}]}
-        }))
+        settings_path.write_text(
+            json.dumps({"hooks": {"SessionStart": [{"matcher": "crossmem-recall", "hooks": []}]}})
+        )
 
         runner = CliRunner()
         with patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path):
@@ -535,6 +617,7 @@ class TestCopilotHookHelpers:
 
     def test_build_copilot_block_contains_date(self) -> None:
         import datetime
+
         block = _build_copilot_block("content")
         assert datetime.date.today().isoformat() in block
 
@@ -609,6 +692,7 @@ class TestCopilotHookHelpers:
 
     def test_copilot_global_path_platform_branches(self) -> None:
         import platform as _platform
+
         system = _platform.system()
         path = _copilot_global_path()
         if system == "Darwin":
@@ -685,9 +769,7 @@ class TestInstallHookCopilot:
 
         runner = CliRunner()
         with patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path):
-            result = runner.invoke(
-                main, ["install-hook", "--tool", "copilot", "--uninstall"]
-            )
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot", "--uninstall"])
 
         assert result.exit_code == 0
         assert "Removed" in result.output
@@ -698,9 +780,7 @@ class TestInstallHookCopilot:
     def test_uninstall_no_block_reports_not_found(self, tmp_path: Path) -> None:
         runner = CliRunner()
         with patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path):
-            result = runner.invoke(
-                main, ["install-hook", "--tool", "copilot", "--uninstall"]
-            )
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot", "--uninstall"])
         assert result.exit_code == 0
         assert "No crossmem block found" in result.output
 
@@ -712,9 +792,7 @@ class TestInstallHookCopilot:
             patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
         ):
-            result = runner.invoke(
-                main, ["install-hook", "--tool", "copilot", "--global"]
-            )
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot", "--global"])
 
         assert result.exit_code == 0
         assert fake_global.exists()
@@ -774,6 +852,7 @@ class TestParseBlockTimestamp:
 
     def test_parses_iso_timestamp(self) -> None:
         import datetime
+
         content = f"{COPILOT_CONTENT_MARKER_START} 2026-04-12T14:32:07 — regenerate: ...\ncontent\n{COPILOT_CONTENT_MARKER_END}"
         ts = _parse_block_timestamp(content)
         assert ts == datetime.datetime(2026, 4, 12, 14, 32, 7)
@@ -800,7 +879,10 @@ class TestIfStale:
 
     def _block_with_age(self, minutes_ago: float) -> str:
         import datetime
-        ts = (datetime.datetime.now() - datetime.timedelta(minutes=minutes_ago)).isoformat(timespec="seconds")
+
+        ts = (datetime.datetime.now() - datetime.timedelta(minutes=minutes_ago)).isoformat(
+            timespec="seconds"
+        )
         return (
             f"{COPILOT_CONTENT_MARKER_START} {ts} — regenerate: crossmem install-hook --tool copilot -->\n"
             "old content\n"
@@ -853,9 +935,7 @@ class TestIfStale:
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
-            result = runner.invoke(
-                main, ["install-hook", "--tool", "copilot", "--if-stale"]
-            )
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot", "--if-stale"])
 
         assert result.exit_code == 0
         assert "Injected" in result.output
@@ -876,9 +956,7 @@ class TestIfStale:
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
-            result = runner.invoke(
-                main, ["install-hook", "--tool", "copilot", "--if-stale"]
-            )
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot", "--if-stale"])
 
         assert result.exit_code == 0
         assert "Injected" in result.output
@@ -894,9 +972,7 @@ class TestIfStale:
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks._get_recall_content", return_value=self.FAKE_RECALL),
         ):
-            result = runner.invoke(
-                main, ["install-hook", "--tool", "copilot"]
-            )
+            result = runner.invoke(main, ["install-hook", "--tool", "copilot"])
 
         assert result.exit_code == 0
         # Either injected or "already up to date" (content may be identical), never silent
@@ -909,11 +985,15 @@ class TestSetup:
     def test_setup_runs_all_four_steps(self, tmp_path: Path) -> None:
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks._claude_settings_path",
-                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch(
+                "crossmem.commands.hooks._claude_settings_path",
+                return_value=tmp_path / ".claude" / "settings.json",
+            ),
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
-            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch(
+                "crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"
+            ),
             patch("crossmem.commands.core.MemoryStore"),
         ):
             result = runner.invoke(main, ["setup"])
@@ -932,7 +1012,9 @@ class TestSetup:
             patch("crossmem.commands.hooks._claude_settings_path", return_value=settings_path),
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
-            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch(
+                "crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"
+            ),
             patch("crossmem.commands.core.MemoryStore"),
         ):
             runner.invoke(main, ["setup"])
@@ -943,11 +1025,15 @@ class TestSetup:
         copilot_path = tmp_path / ".github" / "copilot-instructions.md"
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks._claude_settings_path",
-                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch(
+                "crossmem.commands.hooks._claude_settings_path",
+                return_value=tmp_path / ".claude" / "settings.json",
+            ),
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
-            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch(
+                "crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"
+            ),
             patch("crossmem.commands.core.MemoryStore"),
         ):
             runner.invoke(main, ["setup"])
@@ -959,11 +1045,15 @@ class TestSetup:
         gemini_path = tmp_path / ".gemini" / "GEMINI.md"
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks._claude_settings_path",
-                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch(
+                "crossmem.commands.hooks._claude_settings_path",
+                return_value=tmp_path / ".claude" / "settings.json",
+            ),
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
-            patch("crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"),
+            patch(
+                "crossmem.commands.hooks._get_recall_content", return_value="# crossmem\n- pat\n"
+            ),
             patch("crossmem.commands.core.MemoryStore"),
         ):
             runner.invoke(main, ["setup"])
@@ -975,8 +1065,10 @@ class TestSetup:
         """setup should not fail if no memories exist yet (Copilot step skipped)."""
         runner = CliRunner()
         with (
-            patch("crossmem.commands.hooks._claude_settings_path",
-                  return_value=tmp_path / ".claude" / "settings.json"),
+            patch(
+                "crossmem.commands.hooks._claude_settings_path",
+                return_value=tmp_path / ".claude" / "settings.json",
+            ),
             patch("crossmem.commands.hooks.Path.cwd", return_value=tmp_path),
             patch("crossmem.commands.hooks.Path.home", return_value=tmp_path),
             patch("crossmem.commands.hooks._get_recall_content", return_value=None),
@@ -997,7 +1089,10 @@ class TestInit:
         )
 
         runner = CliRunner()
-        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.core.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["init", "--path", str(project_dir)])
 
         assert result.exit_code == 0
@@ -1027,7 +1122,10 @@ class TestInit:
         empty_dir.mkdir()
 
         runner = CliRunner()
-        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.core.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["init", "--path", str(empty_dir)])
 
         assert result.exit_code == 0
@@ -1049,15 +1147,16 @@ class TestInit:
         assert "already up to date" in result2.output
 
     def test_multiple_docs(self, tmp_path: Path) -> None:
-        (tmp_path / "README.md").write_text(
-            "# About\nA Python library for data validation.\n"
-        )
+        (tmp_path / "README.md").write_text("# About\nA Python library for data validation.\n")
         (tmp_path / "CONTRIBUTING.md").write_text(
             "# Contributing\nFork the repo and submit a pull request.\n"
         )
 
         runner = CliRunner()
-        with patch("crossmem.commands.core.MemoryStore", return_value=MemoryStore(db_path=tmp_path / "test.db")):
+        with patch(
+            "crossmem.commands.core.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
             result = runner.invoke(main, ["init", "-p", "lib", "--path", str(tmp_path)])
 
         assert result.exit_code == 0
@@ -1068,7 +1167,12 @@ class TestPromptSearch:
     def test_returns_results_for_matching_prompt(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
         store = MemoryStore(db_path=db_path)
-        store.add("Always use middleware for credential masking", "mcp:mem_save", "backend-api", "Security")
+        store.add(
+            "Always use middleware for credential masking",
+            "mcp:mem_save",
+            "backend-api",
+            "Security",
+        )
         store.close()
 
         hook_input = json.dumps({"prompt": "how should I handle credentials in this service"})
@@ -1104,7 +1208,9 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "what is the weather like in Tokyo today"})
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)
+        ):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1136,7 +1242,9 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how do we handle JWT token rotation in our auth"})
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)
+        ):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1153,7 +1261,9 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how do we rotate credentials?"})
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)
+        ):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1169,7 +1279,9 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "how to use pytest::fixture with (scope=session)?"})
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)
+        ):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         # Key assertion: no crash from FTS5 special characters
@@ -1185,7 +1297,9 @@ class TestPromptSearch:
         hook_input = json.dumps({"prompt": "do it now"})
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)
+        ):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
@@ -1193,11 +1307,25 @@ class TestPromptSearch:
 
     def test_rank_filter_keeps_strong_matches(self) -> None:
         """Strong BM25 rank (<= -5.0) should be kept."""
-        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
-        mock_store = type("MockStore", (), {
-            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-10.0, highlight="")],
-            "close": lambda self: None,
-        })()
+        mem = Memory(
+            id=1,
+            content="credential masking",
+            source_file="f.md",
+            project="proj",
+            section="Sec",
+            content_hash="h",
+            created_at="t",
+        )
+        mock_store = type(
+            "MockStore",
+            (),
+            {
+                "search": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-10.0, highlight="")
+                ],
+                "close": lambda self: None,
+            },
+        )()
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
@@ -1209,11 +1337,25 @@ class TestPromptSearch:
 
     def test_rank_filter_removes_weak_matches(self) -> None:
         """Weak BM25 rank (> -5.0) should be filtered when DB has meaningful ranks."""
-        mem = Memory(id=1, content="some noise", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
-        mock_store = type("MockStore", (), {
-            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-2.0, highlight="")],
-            "close": lambda self: None,
-        })()
+        mem = Memory(
+            id=1,
+            content="some noise",
+            source_file="f.md",
+            project="proj",
+            section="Sec",
+            content_hash="h",
+            created_at="t",
+        )
+        mock_store = type(
+            "MockStore",
+            (),
+            {
+                "search": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-2.0, highlight="")
+                ],
+                "close": lambda self: None,
+            },
+        )()
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
@@ -1225,11 +1367,25 @@ class TestPromptSearch:
 
     def test_rank_filter_bypassed_for_tiny_db(self) -> None:
         """When best rank >= -1.0 (tiny DB), skip filtering — show all results."""
-        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
-        mock_store = type("MockStore", (), {
-            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-0.5, highlight="")],
-            "close": lambda self: None,
-        })()
+        mem = Memory(
+            id=1,
+            content="credential masking",
+            source_file="f.md",
+            project="proj",
+            section="Sec",
+            content_hash="h",
+            created_at="t",
+        )
+        mock_store = type(
+            "MockStore",
+            (),
+            {
+                "search": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-0.5, highlight="")
+                ],
+                "close": lambda self: None,
+            },
+        )()
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
@@ -1243,17 +1399,33 @@ class TestPromptSearch:
 class TestPromptSearchVscodeFormat:
     def test_outputs_json_when_hookEventName_present(self) -> None:
         """VS Code hooks pass hookEventName — output should be JSON with additionalContext."""
-        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
-        mock_store = type("MockStore", (), {
-            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-10.0, highlight="")],
-            "close": lambda self: None,
-        })()
+        mem = Memory(
+            id=1,
+            content="credential masking",
+            source_file="f.md",
+            project="proj",
+            section="Sec",
+            content_hash="h",
+            created_at="t",
+        )
+        mock_store = type(
+            "MockStore",
+            (),
+            {
+                "search": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-10.0, highlight="")
+                ],
+                "close": lambda self: None,
+            },
+        )()
 
-        hook_input = json.dumps({
-            "prompt": "handle credentials securely",
-            "hookEventName": "UserPromptSubmit",
-            "sessionId": "test",
-        })
+        hook_input = json.dumps(
+            {
+                "prompt": "handle credentials securely",
+                "hookEventName": "UserPromptSubmit",
+                "sessionId": "test",
+            }
+        )
         runner = CliRunner()
         with patch("crossmem.commands.hooks.MemoryStore", return_value=mock_store):
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
@@ -1265,11 +1437,25 @@ class TestPromptSearchVscodeFormat:
 
     def test_outputs_plain_text_without_hookEventName(self) -> None:
         """Claude Code format (no hookEventName) — output should be plain text."""
-        mem = Memory(id=1, content="credential masking", source_file="f.md", project="proj", section="Sec", content_hash="h", created_at="t")
-        mock_store = type("MockStore", (), {
-            "search": lambda self, *a, **kw: [SearchResult(memory=mem, rank=-10.0, highlight="")],
-            "close": lambda self: None,
-        })()
+        mem = Memory(
+            id=1,
+            content="credential masking",
+            source_file="f.md",
+            project="proj",
+            section="Sec",
+            content_hash="h",
+            created_at="t",
+        )
+        mock_store = type(
+            "MockStore",
+            (),
+            {
+                "search": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-10.0, highlight="")
+                ],
+                "close": lambda self: None,
+            },
+        )()
 
         hook_input = json.dumps({"prompt": "handle credentials securely"})
         runner = CliRunner()
@@ -1291,7 +1477,9 @@ class TestRecallVscodeFormat:
         store.close()
 
         runner = CliRunner()
-        with patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)):
+        with patch(
+            "crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)
+        ):
             result = runner.invoke(main, ["recall", "-p", "test-proj", "--format", "vscode"])
 
         assert result.exit_code == 0
@@ -1304,7 +1492,9 @@ class TestInstallHookCopilotAgent:
     def test_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        with patch("crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
+        with patch(
+            "crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"
+        ):
             result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent", "--dry-run"])
 
         assert result.exit_code == 0
@@ -1316,7 +1506,9 @@ class TestInstallHookCopilotAgent:
     def test_install_creates_file(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
-        with patch("crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"):
+        with patch(
+            "crossmem.commands.hooks._find_crossmem_bin", return_value="/usr/local/bin/crossmem"
+        ):
             result = runner.invoke(main, ["install-hook", "--tool", "copilot-agent"])
 
         assert result.exit_code == 0

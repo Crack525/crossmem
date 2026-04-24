@@ -92,9 +92,7 @@ def _check_fts_integrity() -> tuple[str, str]:
         return "skip", "No database"
     try:
         conn = sqlite3.connect(str(DEFAULT_DB_PATH), timeout=5)
-        conn.execute(
-            "INSERT INTO memories_fts(memories_fts) VALUES ('integrity-check')"
-        )
+        conn.execute("INSERT INTO memories_fts(memories_fts) VALUES ('integrity-check')")
         conn.close()
     except Exception as e:
         return "fail", f"FTS index corrupt: {e}"

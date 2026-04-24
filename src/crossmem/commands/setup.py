@@ -17,13 +17,15 @@ def setup(ctx: click.Context) -> None:
     click.echo("Setting up crossmem...\n")
 
     click.echo("1. Claude Code hook")
-    ctx.invoke(install_hook, tool="claude", uninstall=False, dry_run=False,
-               global_=False, project=None)
+    ctx.invoke(
+        install_hook, tool="claude", uninstall=False, dry_run=False, global_=False, project=None
+    )
     click.echo()
 
     click.echo("2. Copilot instructions (workspace)")
-    ctx.invoke(install_hook, tool="copilot", uninstall=False, dry_run=False,
-               global_=False, project=None)
+    ctx.invoke(
+        install_hook, tool="copilot", uninstall=False, dry_run=False, global_=False, project=None
+    )
     click.echo()
 
     click.echo("3. Gemini instructions")

@@ -88,9 +88,7 @@ def _build_recall_output(
         used += len(header)
         lines.append(header)
         for mem in shared_memories:
-            label = (
-                f"{mem.project}/{mem.section}" if mem.section else mem.project
-            )
+            label = f"{mem.project}/{mem.section}" if mem.section else mem.project
             line = f"- ({label}) {mem.snippet}"
             if used + len(line) + 1 > budget:
                 break
@@ -153,6 +151,7 @@ def _get_recall_content(project: str | None, limit: int, budget: int) -> str | N
 def _find_crossmem_bin() -> str:
     """Find the crossmem binary path, preferring an absolute path."""
     import sys
+
     venv_bin = Path(sys.executable).parent / "crossmem"
     if venv_bin.exists():
         return str(venv_bin)
@@ -348,7 +347,8 @@ def _remove_instruction(path: Path) -> bool:
 @click.option("-n", "--limit", default=30, help="Max memories to fetch from DB")
 @click.option("--budget", default=2000, help="Max output size in characters")
 @click.option(
-    "--format", "fmt",
+    "--format",
+    "fmt",
     type=click.Choice(["text", "copilot", "vscode"], case_sensitive=False),
     default="text",
     help="Output format: text (default), copilot (injection markers), or vscode (hook JSON)",
@@ -384,12 +384,16 @@ def recall(project: str | None, limit: int, budget: int, fmt: str) -> None:
     if fmt == "copilot":
         click.echo(_build_copilot_block(output))
     elif fmt == "vscode":
-        click.echo(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": output,
-            }
-        }))
+        click.echo(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "additionalContext": output,
+                    }
+                }
+            )
+        )
     else:
         click.echo(output)
 
@@ -419,21 +423,143 @@ def prompt_search() -> None:
     import re as _re
 
     stop_words = {
-        "i", "me", "my", "we", "our", "you", "your", "it", "its", "he", "she", "they",
-        "a", "an", "the", "this", "that", "these", "those",
-        "is", "am", "are", "was", "were", "be", "been", "being",
-        "do", "does", "did", "will", "would", "could", "should", "can", "may", "might",
-        "have", "has", "had", "having",
-        "in", "on", "at", "to", "for", "of", "with", "by", "from", "about",
-        "and", "or", "but", "not", "no", "if", "when", "how", "what", "which", "where",
-        "so", "just", "also", "very", "too", "here", "there",
-        "now", "then", "up", "down", "still", "let", "want", "need", "use", "get", "make",
-        "yes", "ok", "okay", "sure", "please", "thanks", "thank",
-        "go", "ahead", "good", "great", "looks", "look", "like", "continue", "done", "right",
-        "actually", "pretty", "really", "stuff", "things", "thing", "something", "anything",
-        "interesting", "cool", "nice", "fine", "bad", "better", "best", "worst", "new", "old",
-        "know", "think", "see", "try", "show", "tell", "give", "take", "put", "run", "set",
-        "way", "work", "works", "well", "much", "many", "some", "any", "all", "each", "every",
+        "i",
+        "me",
+        "my",
+        "we",
+        "our",
+        "you",
+        "your",
+        "it",
+        "its",
+        "he",
+        "she",
+        "they",
+        "a",
+        "an",
+        "the",
+        "this",
+        "that",
+        "these",
+        "those",
+        "is",
+        "am",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "can",
+        "may",
+        "might",
+        "have",
+        "has",
+        "had",
+        "having",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "about",
+        "and",
+        "or",
+        "but",
+        "not",
+        "no",
+        "if",
+        "when",
+        "how",
+        "what",
+        "which",
+        "where",
+        "so",
+        "just",
+        "also",
+        "very",
+        "too",
+        "here",
+        "there",
+        "now",
+        "then",
+        "up",
+        "down",
+        "still",
+        "let",
+        "want",
+        "need",
+        "use",
+        "get",
+        "make",
+        "yes",
+        "ok",
+        "okay",
+        "sure",
+        "please",
+        "thanks",
+        "thank",
+        "go",
+        "ahead",
+        "good",
+        "great",
+        "looks",
+        "look",
+        "like",
+        "continue",
+        "done",
+        "right",
+        "actually",
+        "pretty",
+        "really",
+        "stuff",
+        "things",
+        "thing",
+        "something",
+        "anything",
+        "interesting",
+        "cool",
+        "nice",
+        "fine",
+        "bad",
+        "better",
+        "best",
+        "worst",
+        "new",
+        "old",
+        "know",
+        "think",
+        "see",
+        "try",
+        "show",
+        "tell",
+        "give",
+        "take",
+        "put",
+        "run",
+        "set",
+        "way",
+        "work",
+        "works",
+        "well",
+        "much",
+        "many",
+        "some",
+        "any",
+        "all",
+        "each",
+        "every",
     }
     keywords = [_re.sub(r"[^a-z0-9]", "", w) for w in prompt.lower().split()]
     keywords = [w for w in keywords if w and w not in stop_words]
@@ -448,9 +574,7 @@ def prompt_search() -> None:
             from crossmem.server import resolve_project
 
             cwd = hook_input.get("cwd") or os.getcwd()
-            rows = store.db.execute(
-                "SELECT DISTINCT project FROM memories"
-            ).fetchall()
+            rows = store.db.execute("SELECT DISTINCT project FROM memories").fetchall()
             known = [r["project"] for r in rows]
             if known:
                 current_project = resolve_project(cwd, known)
@@ -473,7 +597,8 @@ def prompt_search() -> None:
 
         if len(keywords) > 1 and results and results[0].rank < -1.0:
             results = [
-                r for r in results
+                r
+                for r in results
                 if r.rank <= PROMPT_SEARCH_MIN_RANK
                 or (current_project and r.memory.project == current_project)
             ]
@@ -495,12 +620,16 @@ def prompt_search() -> None:
         if len(lines) > 1:
             output = "\n".join(lines)
             if hook_input.get("hookEventName"):
-                click.echo(json.dumps({
-                    "hookSpecificOutput": {
-                        "hookEventName": "UserPromptSubmit",
-                        "additionalContext": output,
-                    }
-                }))
+                click.echo(
+                    json.dumps(
+                        {
+                            "hookSpecificOutput": {
+                                "hookEventName": "UserPromptSubmit",
+                                "additionalContext": output,
+                            }
+                        }
+                    )
+                )
             else:
                 click.echo(output)
     finally:
@@ -558,14 +687,16 @@ def install_instructions(uninstall: bool, dry_run: bool) -> None:
     "or copilot-agent (VS Code hooks)",
 )
 @click.option(
-    "--global", "global_",
+    "--global",
+    "global_",
     is_flag=True,
     help="[copilot only] Write to VS Code global user prompts (applies to all workspaces)",
 )
 @click.option("-p", "--project", default=None, help="[copilot only] Project name (auto-detected)")
 @click.option("-n", "--limit", default=30, help="[copilot only] Max memories to inject")
 @click.option(
-    "--budget", default=2000,
+    "--budget",
+    default=2000,
     help="[copilot only] Max injected content size in characters",
 )
 @click.option(
@@ -659,9 +790,7 @@ def _install_hook_claude(uninstall: bool, dry_run: bool) -> None:
     ups_idx = None
     for i, entry in enumerate(prompt_submit):
         hooks_list = entry.get("hooks", [])
-        has_crossmem_cmd = any(
-            "crossmem prompt-search" in h.get("command", "") for h in hooks_list
-        )
+        has_crossmem_cmd = any("crossmem prompt-search" in h.get("command", "") for h in hooks_list)
         if has_crossmem_cmd:
             ups_idx = i
             break
@@ -713,12 +842,17 @@ def _install_hook_claude(uninstall: bool, dry_run: bool) -> None:
 
     if dry_run:
         click.echo(f"Would install in {settings_path}:\n")
-        click.echo(json.dumps({
-            "hooks": {
-                "SessionStart": [ss_entry],
-                "UserPromptSubmit": [ups_entry],
-            }
-        }, indent=2))
+        click.echo(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [ss_entry],
+                        "UserPromptSubmit": [ups_entry],
+                    }
+                },
+                indent=2,
+            )
+        )
         return
 
     if ss_idx is not None:
@@ -828,8 +962,7 @@ def _install_hook_copilot(
 
     if if_stale and not uninstall:
         existing_text = (
-            target.read_text(encoding="utf-8", errors="replace")
-            if target.exists() else ""
+            target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
         )
         if COPILOT_CONTENT_MARKER_START in existing_text:
             ts = _parse_block_timestamp(existing_text)

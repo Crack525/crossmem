@@ -137,8 +137,7 @@ class TestIngestGeminiMemory:
         gemini_dir = tmp_path / ".gemini"
         gemini_dir.mkdir()
         (gemini_dir / "GEMINI.md").write_text(
-            "## Gemini Added Memories\n"
-            "- For the 'alpha' project, always run tests before commit.\n"
+            "## Gemini Added Memories\n- For the 'alpha' project, always run tests before commit.\n"
         )
 
         store = MemoryStore(db_path=tmp_path / "test.db")
@@ -209,9 +208,7 @@ class TestIngestCopilotMemory:
     def test_project_is_copilot(self, tmp_path: Path) -> None:
         mem_dir = tmp_path / "memories"
         mem_dir.mkdir()
-        (mem_dir / "notes.md").write_text(
-            "Always check error boundaries in React components.\n"
-        )
+        (mem_dir / "notes.md").write_text("Always check error boundaries in React components.\n")
 
         store = MemoryStore(db_path=tmp_path / "test.db")
         ingest_copilot_memory(store, base_path=mem_dir)
@@ -283,9 +280,7 @@ class TestFindProjectDocs:
     def test_finds_github_copilot_instructions(self, tmp_path: Path) -> None:
         gh_dir = tmp_path / ".github"
         gh_dir.mkdir()
-        (gh_dir / "copilot-instructions.md").write_text(
-            "# Instructions for copilot"
-        )
+        (gh_dir / "copilot-instructions.md").write_text("# Instructions for copilot")
         docs = find_project_docs(tmp_path)
         assert len(docs) == 1
 
@@ -322,9 +317,7 @@ class TestIngestProjectDocs:
         assert "Architecture" in sections
 
     def test_uses_init_source_prefix(self, tmp_path: Path) -> None:
-        (tmp_path / "README.md").write_text(
-            "# Setup\nInstall dependencies with pip install.\n"
-        )
+        (tmp_path / "README.md").write_text("# Setup\nInstall dependencies with pip install.\n")
         store = MemoryStore(db_path=tmp_path / "test.db")
         ingest_project_docs(store, tmp_path, project="test-proj")
         memories = store.get_by_project("test-proj")

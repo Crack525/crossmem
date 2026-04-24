@@ -9,17 +9,106 @@ from collections import defaultdict
 from crossmem.store import MemoryStore
 
 _STOP_WORDS = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "can", "shall", "to", "of", "in", "for",
-    "on", "with", "at", "by", "from", "as", "into", "through", "during",
-    "before", "after", "above", "below", "between", "out", "off", "over",
-    "under", "again", "further", "then", "once", "and", "but", "or", "nor",
-    "not", "no", "so", "if", "that", "this", "these", "those", "it", "its",
-    "all", "each", "every", "both", "few", "more", "most", "other", "some",
-    "such", "only", "own", "same", "than", "too", "very", "just", "about",
-    "use", "used", "using", "also", "new", "one", "two", "first", "last",
-    "file", "files", "run", "set", "get", "add", "see", "e", "g",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "can",
+    "shall",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "between",
+    "out",
+    "off",
+    "over",
+    "under",
+    "again",
+    "further",
+    "then",
+    "once",
+    "and",
+    "but",
+    "or",
+    "nor",
+    "not",
+    "no",
+    "so",
+    "if",
+    "that",
+    "this",
+    "these",
+    "those",
+    "it",
+    "its",
+    "all",
+    "each",
+    "every",
+    "both",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "only",
+    "own",
+    "same",
+    "than",
+    "too",
+    "very",
+    "just",
+    "about",
+    "use",
+    "used",
+    "using",
+    "also",
+    "new",
+    "one",
+    "two",
+    "first",
+    "last",
+    "file",
+    "files",
+    "run",
+    "set",
+    "get",
+    "add",
+    "see",
+    "e",
+    "g",
 }
 
 
@@ -49,16 +138,16 @@ def build_graph_data(store: MemoryStore) -> dict:
     node_ids: dict[str, int] = {}
 
     # Project nodes
-    for i, (project, count) in enumerate(
-        sorted(projects.items(), key=lambda x: -x[1])
-    ):
+    for i, (project, count) in enumerate(sorted(projects.items(), key=lambda x: -x[1])):
         node_ids[f"proj:{project}"] = i
-        nodes.append({
-            "id": i,
-            "label": project,
-            "type": "project",
-            "size": count,
-        })
+        nodes.append(
+            {
+                "id": i,
+                "label": project,
+                "type": "project",
+                "size": count,
+            }
+        )
 
     # Section nodes (only sections that appear in 1+ project)
     for section, projs in sorted(sections.items(), key=lambda x: -len(x[1])):
@@ -66,32 +155,34 @@ def build_graph_data(store: MemoryStore) -> dict:
             continue
         idx = len(nodes)
         node_ids[f"sec:{section}"] = idx
-        nodes.append({
-            "id": idx,
-            "label": section,
-            "type": "shared_section" if len(projs) > 1 else "section",
-            "size": sum(project_sections[p][section] for p in projs),
-            "projects": sorted(projs),
-        })
+        nodes.append(
+            {
+                "id": idx,
+                "label": section,
+                "type": "shared_section" if len(projs) > 1 else "section",
+                "size": sum(project_sections[p][section] for p in projs),
+                "projects": sorted(projs),
+            }
+        )
 
         # Edges from section to each project
         for proj in projs:
             proj_key = f"proj:{proj}"
             if proj_key in node_ids:
-                edges.append({
-                    "source": node_ids[proj_key],
-                    "target": idx,
-                    "weight": project_sections[proj][section],
-                })
+                edges.append(
+                    {
+                        "source": node_ids[proj_key],
+                        "target": idx,
+                        "weight": project_sections[proj][section],
+                    }
+                )
 
     # Cross-project edges via shared keywords in content
     project_keywords: dict[str, set[str]] = defaultdict(set)
     stop_words = _STOP_WORDS
     for row in rows:
         words = set(
-            w.lower().strip("`*_-()[]{}.,;:!?\"'#/\\")
-            for w in row["content"].split()
-            if len(w) > 2
+            w.lower().strip("`*_-()[]{}.,;:!?\"'#/\\") for w in row["content"].split() if len(w) > 2
         )
         words -= stop_words
         project_keywords[row["project"]].update(words)
@@ -99,19 +190,21 @@ def build_graph_data(store: MemoryStore) -> dict:
     # Find keyword overlap between project pairs
     proj_list = sorted(projects.keys())
     for i, p1 in enumerate(proj_list):
-        for p2 in proj_list[i + 1:]:
+        for p2 in proj_list[i + 1 :]:
             shared = project_keywords[p1] & project_keywords[p2]
             if len(shared) > 5:  # meaningful overlap
                 k1 = f"proj:{p1}"
                 k2 = f"proj:{p2}"
                 if k1 in node_ids and k2 in node_ids:
-                    edges.append({
-                        "source": node_ids[k1],
-                        "target": node_ids[k2],
-                        "weight": len(shared),
-                        "type": "keyword_overlap",
-                        "shared_keywords": sorted(shared)[:20],
-                    })
+                    edges.append(
+                        {
+                            "source": node_ids[k1],
+                            "target": node_ids[k2],
+                            "weight": len(shared),
+                            "type": "keyword_overlap",
+                            "shared_keywords": sorted(shared)[:20],
+                        }
+                    )
 
     return {"nodes": nodes, "edges": edges}
 

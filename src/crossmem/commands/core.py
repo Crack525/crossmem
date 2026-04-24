@@ -205,7 +205,10 @@ def stats() -> None:
 @click.command()
 @click.option("-p", "--project", default=None, help="Project name (auto-detected from cwd/git)")
 @click.option(
-    "--path", "project_path", default=None, type=click.Path(exists=True),
+    "--path",
+    "project_path",
+    default=None,
+    type=click.Path(exists=True),
     help="Project directory (defaults to cwd)",
 )
 def init(project: str | None, project_path: str | None) -> None:
@@ -242,9 +245,6 @@ def init(project: str | None, project_path: str | None) -> None:
                 "ARCHITECTURE.md, .github/copilot-instructions.md"
             )
         else:
-            click.echo(
-                f"Initialized '{project}': {added} new memories "
-                f"({total} total)"
-            )
+            click.echo(f"Initialized '{project}': {added} new memories ({total} total)")
     finally:
         store.close()

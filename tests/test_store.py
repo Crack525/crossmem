@@ -319,9 +319,7 @@ class TestUpsert:
 class TestSchemaMigration:
     def test_fresh_db_gets_version_1(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "fresh.db")
-        row = store.db.execute(
-            "SELECT MAX(version) AS v FROM schema_version"
-        ).fetchone()
+        row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         assert row["v"] == 1
         store.close()
 
@@ -361,9 +359,7 @@ class TestSchemaMigration:
         assert store.count() == 1
         mem = store.get(1)
         assert mem.content == "legacy data"
-        row = store.db.execute(
-            "SELECT MAX(version) AS v FROM schema_version"
-        ).fetchone()
+        row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         assert row["v"] == 1
         store.close()
 

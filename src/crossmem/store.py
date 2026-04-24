@@ -59,7 +59,9 @@ class MemoryStore:
     # version 0 (the original schema already exists; migration 1 is a no-op
     # for them because every statement uses IF NOT EXISTS).
     _MIGRATIONS: list[tuple[int, str]] = [
-        (1, """
+        (
+            1,
+            """
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 content TEXT NOT NULL,
@@ -96,7 +98,8 @@ class MemoryStore:
                 INSERT INTO memories_fts(rowid, content, project, section)
                 VALUES (new.id, new.content, new.project, new.section);
             END;
-        """),
+        """,
+        ),
     ]
 
     def _init_schema(self) -> None:
@@ -106,9 +109,7 @@ class MemoryStore:
                 version INTEGER PRIMARY KEY
             )
         """)
-        row = self.db.execute(
-            "SELECT MAX(version) AS v FROM schema_version"
-        ).fetchone()
+        row = self.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = row["v"] or 0
 
         for version, sql in self._MIGRATIONS:
@@ -350,9 +351,7 @@ class MemoryStore:
 
     def list_projects(self) -> list[str]:
         """Return all distinct project names."""
-        rows = self.db.execute(
-            "SELECT DISTINCT project FROM memories ORDER BY project"
-        ).fetchall()
+        rows = self.db.execute("SELECT DISTINCT project FROM memories ORDER BY project").fetchall()
         return [row["project"] for row in rows]
 
     def stats(self) -> dict[str, int]:

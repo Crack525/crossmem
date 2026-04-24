@@ -57,9 +57,7 @@ class TestCheckDatabase:
     def test_db_exists_with_memories(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)"
-        )
+        conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)")
         conn.execute("INSERT INTO memories VALUES (1, 'hello')")
         conn.commit()
         conn.close()
@@ -71,9 +69,7 @@ class TestCheckDatabase:
     def test_db_exists_empty(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)"
-        )
+        conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)")
         conn.commit()
         conn.close()
         with mock.patch("crossmem.commands.doctor.DEFAULT_DB_PATH", db_path):
@@ -101,19 +97,13 @@ class TestCheckClaudeHook:
     def test_both_hooks_present(self, tmp_path: Path) -> None:
         settings = {
             "hooks": {
-                "PostToolUse": [
-                    {"command": "crossmem recall --project test"}
-                ],
-                "PreToolUse": [
-                    {"command": "crossmem prompt-search --budget 5"}
-                ],
+                "PostToolUse": [{"command": "crossmem recall --project test"}],
+                "PreToolUse": [{"command": "crossmem prompt-search --budget 5"}],
             }
         }
         settings_path = tmp_path / "settings.json"
         settings_path.write_text(json.dumps(settings))
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             # settings_path = Path.home() / ".claude" / "settings.json"
             claude_dir = tmp_path / ".claude"
             claude_dir.mkdir()
@@ -126,17 +116,13 @@ class TestCheckClaudeHook:
     def test_recall_only(self, tmp_path: Path) -> None:
         settings = {
             "hooks": {
-                "PostToolUse": [
-                    {"command": "crossmem recall --project test"}
-                ],
+                "PostToolUse": [{"command": "crossmem recall --project test"}],
             }
         }
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
         (claude_dir / "settings.json").write_text(json.dumps(settings))
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             status, _ = _check_claude_hook()
         assert status == "warn"
 
@@ -145,16 +131,12 @@ class TestCheckClaudeHook:
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
         (claude_dir / "settings.json").write_text(json.dumps(settings))
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             status, _ = _check_claude_hook()
         assert status == "fail"
 
     def test_settings_missing(self, tmp_path: Path) -> None:
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             status, _ = _check_claude_hook()
         assert status == "fail"
 
@@ -162,9 +144,7 @@ class TestCheckClaudeHook:
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
         (claude_dir / "settings.json").write_text("{bad json")
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             status, detail = _check_claude_hook()
         assert status == "fail"
         assert "Malformed" in detail
@@ -177,9 +157,7 @@ class TestCheckGeminiInstructions:
         (gemini_dir / "GEMINI.md").write_text(
             "# Instructions\n<!-- crossmem-instruction -->\nstuff"
         )
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             status, _ = _check_gemini_instructions()
         assert status == "ok"
 
@@ -187,16 +165,12 @@ class TestCheckGeminiInstructions:
         gemini_dir = tmp_path / ".gemini"
         gemini_dir.mkdir()
         (gemini_dir / "GEMINI.md").write_text("# No marker here")
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             status, _ = _check_gemini_instructions()
         assert status == "warn"
 
     def test_file_missing(self, tmp_path: Path) -> None:
-        with mock.patch(
-            "crossmem.commands.doctor.Path.home", return_value=tmp_path
-        ):
+        with mock.patch("crossmem.commands.doctor.Path.home", return_value=tmp_path):
             status, _ = _check_gemini_instructions()
         assert status == "skip"
 
@@ -233,9 +207,7 @@ class TestDoctorCLI:
         store.close()
 
         with (
-            mock.patch(
-                "crossmem.commands.doctor.DEFAULT_DB_PATH", db_path
-            ),
+            mock.patch("crossmem.commands.doctor.DEFAULT_DB_PATH", db_path),
             mock.patch(
                 "crossmem.commands.doctor.Path.home",
                 return_value=tmp_path,
