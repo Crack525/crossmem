@@ -206,6 +206,79 @@ def stats() -> None:
         store.close()
 
 
+@click.group(invoke_without_command=True)
+@click.option(
+    "--backfill",
+    "do_backfill",
+    is_flag=True,
+    default=False,
+    help="Expand keywords for all memories with no keyword expansion yet.",
+)
+@click.pass_context
+def synonyms(ctx: click.Context, do_backfill: bool) -> None:
+    """Manage synonym groups for expanded search.
+
+    Examples:
+        crossmem synonyms list
+        crossmem synonyms add deploy ship
+        crossmem synonyms backfill
+        crossmem synonyms --backfill
+    """
+    if do_backfill:
+        store = MemoryStore()
+        try:
+            count = store.backfill_keywords()
+            click.echo(f"Backfilled keywords for {count} memories.")
+        finally:
+            store.close()
+    elif ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@synonyms.command(name="list")
+def synonyms_list() -> None:
+    """List all synonym groups."""
+    store = MemoryStore()
+    try:
+        groups = store.list_synonyms()
+        if not groups:
+            click.echo("No synonyms defined.")
+            return
+        for canonical, terms in sorted(groups.items()):
+            click.echo(f"{canonical}: {', '.join(sorted(terms))}")
+    finally:
+        store.close()
+
+
+@synonyms.command(name="add")
+@click.argument("canonical")
+@click.argument("term")
+def synonyms_add(canonical: str, term: str) -> None:
+    """Add a synonym pair to a group.
+
+    Examples:
+        crossmem synonyms add deploy ship
+        crossmem synonyms add auth token
+    """
+    store = MemoryStore()
+    try:
+        store.add_synonym(canonical, term)
+        click.echo(f"Added: {canonical} ↔ {term}")
+    finally:
+        store.close()
+
+
+@synonyms.command(name="backfill")
+def synonyms_backfill() -> None:
+    """Expand keywords for all memories that have no keyword expansion yet."""
+    store = MemoryStore()
+    try:
+        count = store.backfill_keywords()
+        click.echo(f"Backfilled keywords for {count} memories.")
+    finally:
+        store.close()
+
+
 @click.command()
 @click.option("-p", "--project", default=None, help="Project name (auto-detected from cwd/git)")
 @click.option(

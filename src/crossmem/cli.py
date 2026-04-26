@@ -2,7 +2,18 @@
 
 import click
 
-from crossmem.commands.core import forget, graph, ingest, init, save, search, serve, stats, update
+from crossmem.commands.core import (
+    forget,
+    graph,
+    ingest,
+    init,
+    save,
+    search,
+    serve,
+    stats,
+    synonyms,
+    update,
+)
 from crossmem.commands.doctor import doctor
 from crossmem.commands.hooks import install_hook, install_instructions, prompt_search, recall
 from crossmem.commands.setup import setup
@@ -30,3 +41,4 @@ main.add_command(prompt_search)
 main.add_command(install_instructions)
 main.add_command(install_hook)
 main.add_command(doctor)
+main.add_command(synonyms)

@@ -1175,7 +1175,7 @@ class TestPromptSearch:
         )
         store.close()
 
-        hook_input = json.dumps({"prompt": "how should I handle credentials in this service"})
+        hook_input = json.dumps({"prompt": "credential masking middleware"})
 
         runner = CliRunner()
         with patch(
@@ -1241,7 +1241,7 @@ class TestPromptSearch:
         store.add("JWT tokens rotated on each use", "mcp:mem_save", "backend-api", "Auth")
         store.close()
 
-        hook_input = json.dumps({"prompt": "how do we handle JWT token rotation in our auth"})
+        hook_input = json.dumps({"prompt": "how do we rotate JWT tokens in our auth"})
 
         runner = CliRunner()
         with patch(
@@ -1308,7 +1308,7 @@ class TestPromptSearch:
         assert result.output == ""
 
     def test_rank_filter_keeps_strong_matches(self) -> None:
-        """Strong BM25 rank (<= -5.0) should be kept."""
+        """search_expanded results are returned in prompt-search output."""
         mem = Memory(
             id=1,
             content="credential masking",
@@ -1322,7 +1322,7 @@ class TestPromptSearch:
             "MockStore",
             (),
             {
-                "search": lambda self, *a, **kw: [
+                "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-10.0, highlight="")
                 ],
                 "close": lambda self: None,
@@ -1338,7 +1338,7 @@ class TestPromptSearch:
         assert "credential" in result.output.lower()
 
     def test_rank_filter_removes_weak_matches(self) -> None:
-        """Weak BM25 rank (> -5.0) should be filtered when DB has meaningful ranks."""
+        """All search_expanded results are shown — no rank gate applied."""
         mem = Memory(
             id=1,
             content="some noise",
@@ -1352,7 +1352,7 @@ class TestPromptSearch:
             "MockStore",
             (),
             {
-                "search": lambda self, *a, **kw: [
+                "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-2.0, highlight="")
                 ],
                 "close": lambda self: None,
@@ -1365,10 +1365,10 @@ class TestPromptSearch:
             result = runner.invoke(main, ["prompt-search"], input=hook_input)
 
         assert result.exit_code == 0
-        assert result.output == ""
+        assert "noise" in result.output.lower()
 
     def test_rank_filter_bypassed_for_tiny_db(self) -> None:
-        """When best rank >= -1.0 (tiny DB), skip filtering — show all results."""
+        """search_expanded results shown regardless of rank value."""
         mem = Memory(
             id=1,
             content="credential masking",
@@ -1382,7 +1382,7 @@ class TestPromptSearch:
             "MockStore",
             (),
             {
-                "search": lambda self, *a, **kw: [
+                "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-0.5, highlight="")
                 ],
                 "close": lambda self: None,
@@ -1414,7 +1414,7 @@ class TestPromptSearchVscodeFormat:
             "MockStore",
             (),
             {
-                "search": lambda self, *a, **kw: [
+                "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-10.0, highlight="")
                 ],
                 "close": lambda self: None,
@@ -1452,7 +1452,7 @@ class TestPromptSearchVscodeFormat:
             "MockStore",
             (),
             {
-                "search": lambda self, *a, **kw: [
+                "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-10.0, highlight="")
                 ],
                 "close": lambda self: None,
@@ -1468,6 +1468,61 @@ class TestPromptSearchVscodeFormat:
         assert result.output.startswith("# crossmem:")
         # Should NOT be JSON
         assert "hookSpecificOutput" not in result.output
+
+
+class TestRecallQueryOption:
+    def test_recall_query_option_scopes_results(self, tmp_path: Path) -> None:
+        """--query calls search_expanded to scope results."""
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("auth token setup guide", "mcp:mem_save", "proj", "Auth")
+        store.add("docker container deployment steps", "mcp:mem_save", "proj", "Infra")
+        store.close()
+
+        runner = CliRunner()
+        with (
+            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)),
+            patch("crossmem.ingest.ingest_claude_memory", return_value=0),
+            patch("crossmem.ingest.ingest_copilot_memory", return_value=0),
+            patch("crossmem.ingest.ingest_gemini_memory", return_value=0),
+        ):
+            result = runner.invoke(main, ["recall", "-p", "proj", "--query", "auth token"])
+
+        assert result.exit_code == 0
+        assert "auth" in result.output.lower()
+        assert "docker" not in result.output.lower()
+
+    def test_prompt_search_filters_hook_meta_words(self, tmp_path: Path) -> None:
+        """Hook meta words ('recall', 'memories') must not reach search_expanded."""
+        db_path = tmp_path / "test.db"
+        store = MemoryStore(db_path=db_path)
+        store.add("auth token credential setup", "mcp:mem_save", "proj", "Auth")
+        store.close()
+
+        captured: list[str] = []
+
+        original_search_expanded = MemoryStore.search_expanded
+
+        def patched_search_expanded(
+            self: MemoryStore, query: str, **kw: object
+        ) -> list[SearchResult]:
+            captured.append(query)
+            return original_search_expanded(self, query, **kw)
+
+        hook_input = json.dumps({"prompt": "recall memories about auth credentials"})
+        runner = CliRunner()
+        with (
+            patch("crossmem.commands.hooks.MemoryStore", return_value=MemoryStore(db_path=db_path)),
+            patch.object(MemoryStore, "search_expanded", patched_search_expanded),
+        ):
+            result = runner.invoke(main, ["prompt-search"], input=hook_input)
+
+        assert result.exit_code == 0
+        for query in captured:
+            words = query.split()
+            assert "recall" not in words, f"'recall' leaked into query: {query!r}"
+            assert "memories" not in words, f"'memories' leaked into query: {query!r}"
+            assert "about" not in words, f"'about' leaked into query: {query!r}"
 
 
 class TestRecallVscodeFormat:

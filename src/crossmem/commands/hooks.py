@@ -28,7 +28,25 @@ HOOK_MATCHER_LEGACY = "crossmem-recall"
 PROMPT_SEARCH_MIN_WORDS = 3
 PROMPT_SEARCH_MAX_RESULTS = 5
 PROMPT_SEARCH_BUDGET = 4000
-PROMPT_SEARCH_MIN_RANK = -5.0
+
+HOOK_META_WORDS = {
+    "recall",
+    "memories",
+    "memory",
+    "remember",
+    "forget",
+    "search",
+    "find",
+    "show",
+    "list",
+    "get",
+    "give",
+    "me",
+    "related",
+    "about",
+    "regarding",
+    "for",
+}
 
 INSTRUCTION_LINE = (
     "At the start of every session and after every conversation compaction, "
@@ -68,12 +86,16 @@ def _build_recall_output(
     project_memories: list,
     shared_memories: list,
     budget: int,
+    note: str | None = None,
 ) -> str:
     """Build recall output within a character budget, filling by tier."""
     tiered = sorted(project_memories, key=lambda m: _source_tier(m.source_file))
 
-    lines = [f"# crossmem: {project}\n"]
-    used = len(lines[0]) + 1
+    header_line = f"# crossmem: {project}\n"
+    lines = [header_line]
+    if note:
+        lines.append(f"_{note}_\n")
+    used = sum(len(line) + 1 for line in lines)
 
     for mem in tiered:
         section = f" [{mem.section}]" if mem.section else ""
@@ -98,10 +120,16 @@ def _build_recall_output(
     return "\n".join(lines)
 
 
-def _get_recall_content(project: str | None, limit: int, budget: int) -> str | None:
+def _get_recall_content(
+    project: str | None,
+    limit: int,
+    budget: int,
+    query: str | None = None,
+) -> str | None:
     """Return recall output string, or None if no memories found.
 
     Shared by `recall` CLI command and `install-hook --tool copilot`.
+    When query is provided, uses search_expanded to scope results to intent.
     """
     from crossmem.ingest import (
         derive_project_name,
@@ -132,16 +160,34 @@ def _get_recall_content(project: str | None, limit: int, budget: int) -> str | N
                 else:
                     return None
 
-        project_memories = store.get_by_project(project, limit=limit)
-        shared_memories = store.get_shared_sections(project, limit=min(limit, 10))
-
-        if not project_memories and not shared_memories:
-            if has_project_docs(project_dir):
-                ingest_project_docs(store, project_dir, project=project)
+        if query:
+            results = store.search_expanded(query, limit=limit, project=project)
+            if not results:
+                # Fallback: tier-sorted dump with notice
                 project_memories = store.get_by_project(project, limit=limit)
                 shared_memories = store.get_shared_sections(project, limit=min(limit, 10))
+                if not project_memories and not shared_memories:
+                    return None
+                return _build_recall_output(
+                    project,
+                    project_memories,
+                    shared_memories,
+                    budget,
+                    note=f'No scoped results for "{query}". Showing all memories.',
+                )
+            project_memories = [r.memory for r in results]
+            shared_memories = []
+        else:
+            project_memories = store.get_by_project(project, limit=limit)
+            shared_memories = store.get_shared_sections(project, limit=min(limit, 10))
+
             if not project_memories and not shared_memories:
-                return None
+                if has_project_docs(project_dir):
+                    ingest_project_docs(store, project_dir, project=project)
+                    project_memories = store.get_by_project(project, limit=limit)
+                    shared_memories = store.get_shared_sections(project, limit=min(limit, 10))
+                if not project_memories and not shared_memories:
+                    return None
 
         return _build_recall_output(project, project_memories, shared_memories, budget)
     finally:
@@ -346,6 +392,7 @@ def _remove_instruction(path: Path) -> bool:
 @click.option("-p", "--project", default=None, help="Project name (auto-detected from cwd)")
 @click.option("-n", "--limit", default=30, help="Max memories to fetch from DB")
 @click.option("--budget", default=2000, help="Max output size in characters")
+@click.option("-q", "--query", default=None, help="Scope recall to memories matching this query")
 @click.option(
     "--format",
     "fmt",
@@ -353,7 +400,7 @@ def _remove_instruction(path: Path) -> bool:
     default="text",
     help="Output format: text (default), copilot (injection markers), or vscode (hook JSON)",
 )
-def recall(project: str | None, limit: int, budget: int, fmt: str) -> None:
+def recall(project: str | None, limit: int, budget: int, query: str | None, fmt: str) -> None:
     """Recall memories for the current project (for use as a hook).
 
     Outputs project memories and cross-project patterns as text,
@@ -378,7 +425,7 @@ def recall(project: str | None, limit: int, budget: int, fmt: str) -> None:
         crossmem recall --budget 4000
         crossmem recall --format copilot
     """
-    output = _get_recall_content(project, limit, budget)
+    output = _get_recall_content(project, limit, budget, query=query)
     if output is None:
         return
     if fmt == "copilot":
@@ -561,8 +608,9 @@ def prompt_search() -> None:
         "each",
         "every",
     }
+    combined_stop = stop_words | HOOK_META_WORDS
     keywords = [_re.sub(r"[^a-z0-9]", "", w) for w in prompt.lower().split()]
-    keywords = [w for w in keywords if w and w not in stop_words]
+    keywords = [w for w in keywords if w and w not in combined_stop]
     if not keywords:
         return
 
@@ -583,25 +631,19 @@ def prompt_search() -> None:
 
         results = []
         if current_project:
-            results = store.search(
+            results = store.search_expanded(
                 search_query,
                 limit=PROMPT_SEARCH_MAX_RESULTS,
                 project=current_project,
-                or_mode=True,
             )
         if len(results) < PROMPT_SEARCH_MAX_RESULTS:
-            remaining = PROMPT_SEARCH_MAX_RESULTS - len(results)
-            global_results = store.search(search_query, limit=remaining, or_mode=True)
+            global_results = store.search_expanded(search_query, limit=PROMPT_SEARCH_MAX_RESULTS)
             seen_ids = {r.memory.id for r in results}
-            results.extend(r for r in global_results if r.memory.id not in seen_ids)
+            for r in global_results:
+                if r.memory.id not in seen_ids and len(results) < PROMPT_SEARCH_MAX_RESULTS:
+                    results.append(r)
+                    seen_ids.add(r.memory.id)
 
-        if len(keywords) > 1 and results and results[0].rank < -1.0:
-            results = [
-                r
-                for r in results
-                if r.rank <= PROMPT_SEARCH_MIN_RANK
-                or (current_project and r.memory.project == current_project)
-            ]
         if not results:
             return
 

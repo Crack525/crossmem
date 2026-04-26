@@ -1,17 +1,28 @@
 """CLI command package — registers all subcommands on `main`."""
 
-from crossmem.commands.core import forget, graph, ingest, init, save, search, serve, stats, update
+from crossmem.commands.core import (
+    forget,
+    graph,
+    ingest,
+    init,
+    save,
+    search,
+    serve,
+    stats,
+    synonyms,
+    update,
+)
 from crossmem.commands.doctor import doctor
 from crossmem.commands.hooks import (
     COPILOT_CONTENT_MARKER_END,
     COPILOT_CONTENT_MARKER_START,
     HOOK_MATCHER,
     HOOK_MATCHER_LEGACY,
+    HOOK_META_WORDS,
     INSTRUCTION_LINE,
     INSTRUCTION_MARKER,
     PROMPT_SEARCH_BUDGET,
     PROMPT_SEARCH_MAX_RESULTS,
-    PROMPT_SEARCH_MIN_RANK,
     PROMPT_SEARCH_MIN_WORDS,
     _append_instruction,
     _build_copilot_block,
@@ -47,6 +58,7 @@ __all__ = [
     "search",
     "serve",
     "stats",
+    "synonyms",
     "forget",
     "update",
     # Hook commands
@@ -65,9 +77,9 @@ __all__ = [
     "HOOK_MATCHER_LEGACY",
     "INSTRUCTION_LINE",
     "INSTRUCTION_MARKER",
+    "HOOK_META_WORDS",
     "PROMPT_SEARCH_BUDGET",
     "PROMPT_SEARCH_MAX_RESULTS",
-    "PROMPT_SEARCH_MIN_RANK",
     "PROMPT_SEARCH_MIN_WORDS",
     # Private helpers (re-exported for tests)
     "_append_instruction",
