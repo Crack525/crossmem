@@ -1503,7 +1503,9 @@ class TestRecallQueryOption:
 
         original_search_expanded = MemoryStore.search_expanded
 
-        def patched_search_expanded(self: MemoryStore, query: str, **kw: object) -> list[SearchResult]:
+        def patched_search_expanded(
+            self: MemoryStore, query: str, **kw: object
+        ) -> list[SearchResult]:
             captured.append(query)
             return original_search_expanded(self, query, **kw)
 

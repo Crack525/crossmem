@@ -207,7 +207,13 @@ def stats() -> None:
 
 
 @click.group(invoke_without_command=True)
-@click.option("--backfill", "do_backfill", is_flag=True, default=False, help="Expand keywords for all memories with no keyword expansion yet.")
+@click.option(
+    "--backfill",
+    "do_backfill",
+    is_flag=True,
+    default=False,
+    help="Expand keywords for all memories with no keyword expansion yet.",
+)
 @click.pass_context
 def synonyms(ctx: click.Context, do_backfill: bool) -> None:
     """Manage synonym groups for expanded search.
