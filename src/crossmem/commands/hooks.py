@@ -95,7 +95,7 @@ def _build_recall_output(
     lines = [header_line]
     if note:
         lines.append(f"_{note}_\n")
-    used = sum(len(l) + 1 for l in lines)
+    used = sum(len(line) + 1 for line in lines)
 
     for mem in tiered:
         section = f" [{mem.section}]" if mem.section else ""

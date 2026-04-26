@@ -7,13 +7,59 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_STOP_WORDS: frozenset[str] = frozenset({
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "it", "its", "this", "that", "these", "those",
-    "i", "we", "you", "he", "she", "they", "my", "our", "your", "their",
-})
+_STOP_WORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "it",
+        "its",
+        "this",
+        "that",
+        "these",
+        "those",
+        "i",
+        "we",
+        "you",
+        "he",
+        "she",
+        "they",
+        "my",
+        "our",
+        "your",
+        "their",
+    }
+)
 
 
 @dataclass
@@ -261,7 +307,8 @@ class MemoryStore:
         keywords = self._expand_keywords(content)
         try:
             cursor = self.db.execute(
-                """INSERT INTO memories (content, source_file, project, section, content_hash, keywords)
+                """INSERT INTO memories
+                   (content, source_file, project, section, content_hash, keywords)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (content, source_file, project, section, content_hash, keywords),
             )
@@ -503,9 +550,7 @@ class MemoryStore:
 
     def get_all_for_backfill(self) -> list[Memory]:
         """Return all memories where keywords column is empty."""
-        rows = self.db.execute(
-            "SELECT * FROM memories WHERE keywords = '' ORDER BY id"
-        ).fetchall()
+        rows = self.db.execute("SELECT * FROM memories WHERE keywords = '' ORDER BY id").fetchall()
         return [
             Memory(
                 id=row["id"],

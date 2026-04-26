@@ -416,9 +416,9 @@ class TestSearchExpanded:
 
     def test_synonym_cache_invalidates_on_add(self, store: MemoryStore) -> None:
         store.add("run test suite", "f.md", "proj")
-        results_before = store.search_expanded("run pytest suite")
+        store.search_expanded("run pytest suite")
         store.add_synonym("testenv", "pytest")
-        results_after = store.search_expanded("run pytest suite")
+        store.search_expanded("run pytest suite")
         # After adding synonym, cache is invalidated — new group is available
         assert store._synonym_cache is None or "pytest" in store._synonym_cache
 
@@ -478,13 +478,14 @@ class TestKeywordsColumn:
                 content='memories', content_rowid='id',
                 tokenize='porter unicode61'
             );
-            CREATE TABLE synonyms (canonical TEXT NOT NULL, term TEXT NOT NULL, PRIMARY KEY(canonical, term));
+            CREATE TABLE synonyms (
+                canonical TEXT NOT NULL, term TEXT NOT NULL,
+                PRIMARY KEY(canonical, term)
+            );
             CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
             INSERT INTO schema_version VALUES (2);
         """)
-        conn.execute(
-            "INSERT INTO synonyms VALUES ('deploy', 'publish')"
-        )
+        conn.execute("INSERT INTO synonyms VALUES ('deploy', 'publish')")
         conn.execute(
             "INSERT INTO memories (content, source_file, project, section, content_hash, keywords) "
             "VALUES ('PyPI publish process', 'f.md', 'proj', '', 'abc123', '')"
@@ -516,7 +517,7 @@ class TestMigration2:
     def test_hyphenated_term_in_synonym_group_quoted(self, store: MemoryStore) -> None:
         store.add_synonym("ci", "pre-commit")
         store.add("run pre-commit hooks on save", "f.md", "proj")
-        results = store.search_expanded("ci pipeline")
+        store.search_expanded("ci pipeline")
         # The synonym "pre-commit" should be quoted in FTS5 query
         groups = store._get_synonym_groups()
         assert "pre-commit" in groups.get("ci", frozenset())
