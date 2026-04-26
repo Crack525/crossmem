@@ -79,6 +79,7 @@ gemini                    # Gemini: calls mem_recall via instruction in GEMINI.m
    curated memories > tool memories > CLAUDE.md > CONTRIBUTING.md > README.md
 4. **Mid-session recall** (Claude Code + VS Code Agent Mode) — every prompt is searched against your memories. Relevant context is injected before the model responds — no manual `mem_recall` needed.
 5. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds.
+6. **Smart search** (v1.1.0) — a two-layer noise filter separates signal tokens from noise before every FTS query. Layer 1 excludes 168 linguistically fixed closed-class words (prepositions, pronouns, auxiliaries, etc.) in O(1). Layer 2 applies corpus-adaptive IDF via FTS5 — tokens that appear in more than 40% of your documents are treated as project-specific noise. Zero additional dependencies.
 
 ## MCP Server
 
@@ -198,6 +199,10 @@ crossmem setup        # one-time: Claude hook + Copilot injection + Gemini instr
 | GitHub Copilot (Windows) | `%APPDATA%\Code\User\globalStorage\github.copilot-chat\memory-tool\memories\*.md` |
 
 Ingestion is pluggable — PRs welcome for new tools.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Contributing
 

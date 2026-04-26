@@ -3,6 +3,7 @@
 import click
 
 from crossmem.commands.core import (
+    benchmark,
     forget,
     graph,
     ingest,
@@ -28,6 +29,7 @@ def main() -> None:
 # Register all commands
 main.add_command(ingest)
 main.add_command(search)
+main.add_command(benchmark)
 main.add_command(forget)
 main.add_command(update)
 main.add_command(save)

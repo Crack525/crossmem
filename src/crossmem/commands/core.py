@@ -1,9 +1,11 @@
 """Core CRUD commands: ingest, search, forget, update, save, stats, init, graph, serve."""
 
+import tempfile
 from pathlib import Path
 
 import click
 
+from crossmem.benchmark import default_benchmark_cases, run_benchmark, seed_benchmark_memories
 from crossmem.ingest import (
     ingest_claude_memory,
     ingest_copilot_memory,
@@ -206,6 +208,52 @@ def stats() -> None:
         store.close()
 
 
+@click.command(name="benchmark")
+@click.option("-k", "--limit", default=5, show_default=True, help="Top-K results per test case")
+@click.option(
+    "--strict",
+    is_flag=True,
+    default=False,
+    help="Use strict FTS search only (no synonym expansion)",
+)
+def benchmark(limit: int, strict: bool) -> None:
+    """Run a deterministic recall benchmark against v1.0.0 search behavior."""
+    if limit < 1:
+        click.echo("--limit must be >= 1")
+        return
+
+    with tempfile.TemporaryDirectory(prefix="crossmem-benchmark-") as tmpdir:
+        db_path = Path(tmpdir) / "benchmark.db"
+        store = MemoryStore(db_path=db_path)
+        try:
+            seed_benchmark_memories(store)
+            report = run_benchmark(
+                store,
+                cases=default_benchmark_cases(),
+                limit=limit,
+                expanded=not strict,
+            )
+        finally:
+            store.close()
+
+    mode = "strict" if strict else "expanded"
+    click.echo(f"Recall benchmark suite (mode={mode}, k={limit})")
+    click.echo(f"Cases: {report.total_cases}")
+    click.echo(f"Recall@{limit}: {report.recall_at_k:.2f}")
+    click.echo(f"Precision@{limit}: {report.precision_at_k:.2f}")
+    click.echo(f"MRR: {report.mrr:.2f}")
+    click.echo(f"Noise rate: {report.noise_rate:.2f}\n")
+
+    failed = [r for r in report.case_results if not r.recall_hit]
+    if not failed:
+        click.echo("All cases passed.")
+        return
+
+    click.echo("Failed cases:")
+    for result in failed:
+        click.echo(f'- {result.case_id}: "{result.query}" (relevant={result.relevant})')
+
+
 @click.group(invoke_without_command=True)
 @click.option(
     "--backfill",
@@ -236,11 +284,24 @@ def synonyms(ctx: click.Context, do_backfill: bool) -> None:
 
 
 @synonyms.command(name="list")
-def synonyms_list() -> None:
-    """List all synonym groups."""
+@click.option(
+    "--source",
+    type=click.Choice(["seed", "user", "learned"], case_sensitive=False),
+    default=None,
+    help="Filter synonym pairs by provenance source.",
+)
+def synonyms_list(source: str | None) -> None:
+    """List synonym groups, optionally filtered by provenance source."""
     store = MemoryStore()
     try:
-        groups = store.list_synonyms()
+        if source is None:
+            groups = store.list_synonyms()
+        else:
+            groups_with_source = store.list_synonyms_with_source(source=source)
+            groups = {
+                canonical: [term for term, _ in terms]
+                for canonical, terms in groups_with_source.items()
+            }
         if not groups:
             click.echo("No synonyms defined.")
             return
@@ -264,6 +325,67 @@ def synonyms_add(canonical: str, term: str) -> None:
     try:
         store.add_synonym(canonical, term)
         click.echo(f"Added: {canonical} ↔ {term}")
+    finally:
+        store.close()
+
+
+@synonyms.command(name="remove")
+@click.argument("canonical")
+@click.argument("term")
+def synonyms_remove(canonical: str, term: str) -> None:
+    """Remove a synonym pair.
+
+    Examples:
+        crossmem synonyms remove deploy ship
+    """
+    store = MemoryStore()
+    try:
+        removed = store.remove_synonym(canonical, term)
+        if removed:
+            click.echo(f"Removed: {canonical} ↔ {term}")
+        else:
+            click.echo(f"Not found: {canonical} ↔ {term}")
+    finally:
+        store.close()
+
+
+@synonyms.command(name="learn")
+@click.option(
+    "--max-df-ratio",
+    default=0.5,
+    show_default=True,
+    help="Ignore tokens appearing in more than this fraction of memories.",
+)
+@click.option(
+    "--min-df",
+    default=3,
+    show_default=True,
+    help="Minimum document frequency for a token to qualify.",
+)
+@click.option(
+    "--min-jaccard",
+    default=0.3,
+    show_default=True,
+    help="Minimum Jaccard similarity to add a synonym pair.",
+)
+def synonyms_learn(max_df_ratio: float, min_df: int, min_jaccard: float) -> None:
+    """Mine co-occurrence synonyms from memory content.
+
+    Examples:
+        crossmem synonyms learn
+        crossmem synonyms learn --min-jaccard 0.2
+    """
+    store = MemoryStore()
+    try:
+        added = store.learn_synonyms(
+            max_df_ratio=max_df_ratio,
+            min_df=min_df,
+            min_jaccard=min_jaccard,
+        )
+        if added:
+            click.echo(f"Learned {added} new synonym pair(s).")
+        else:
+            click.echo("No new synonym pairs found.")
     finally:
         store.close()
 

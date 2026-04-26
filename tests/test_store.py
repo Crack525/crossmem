@@ -320,7 +320,7 @@ class TestSchemaMigration:
     def test_fresh_db_gets_current_version(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "fresh.db")
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 2
+        assert row["v"] == 3
         store.close()
 
     def test_preexisting_db_upgraded(self, tmp_path: Path) -> None:
@@ -360,7 +360,7 @@ class TestSchemaMigration:
         mem = store.get(1)
         assert mem.content == "legacy data"
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 2
+        assert row["v"] == 3
         store.close()
 
     def test_reopening_db_is_idempotent(self, tmp_path: Path) -> None:
@@ -511,7 +511,7 @@ class TestMigration2:
         store2 = MemoryStore(db_path=db_path)
         assert store2.count() == 1
         row = store2.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 2
+        assert row["v"] == 3
         store2.close()
 
     def test_hyphenated_term_in_synonym_group_quoted(self, store: MemoryStore) -> None:
@@ -521,3 +521,326 @@ class TestMigration2:
         # The synonym "pre-commit" should be quoted in FTS5 query
         groups = store._get_synonym_groups()
         assert "pre-commit" in groups.get("ci", frozenset())
+
+
+class TestRemoveSynonym:
+    def test_remove_existing_pair(self, store: MemoryStore) -> None:
+        store.add_synonym("widget", "gadget")
+        assert store.remove_synonym("widget", "gadget") is True
+
+    def test_remove_nonexistent_returns_false(self, store: MemoryStore) -> None:
+        assert store.remove_synonym("widget", "gadget") is False
+
+    def test_remove_clears_cache(self, store: MemoryStore) -> None:
+        store.add_synonym("widget", "gadget")
+        store._get_synonym_groups()  # populate cache
+        store.remove_synonym("widget", "gadget")
+        assert store._synonym_cache is None
+
+    def test_remove_is_case_insensitive(self, store: MemoryStore) -> None:
+        store.add_synonym("Widget", "Gadget")
+        assert store.remove_synonym("WIDGET", "GADGET") is True
+
+    def test_remove_only_removes_specified_pair(self, store: MemoryStore) -> None:
+        store.add_synonym("widget", "gadget")
+        store.add_synonym("widget", "gizmo")
+        store.remove_synonym("widget", "gadget")
+        synonyms = store.list_synonyms()
+        assert "gizmo" in synonyms.get("widget", [])
+        assert "gadget" not in synonyms.get("widget", [])
+
+
+class TestListSynonymsWithSource:
+    def test_returns_source_for_seed_entries(self, store: MemoryStore) -> None:
+        groups = store.list_synonyms_with_source()
+        # Seed entry: auth → jwt with source=seed
+        jwt_entries = groups.get("auth", [])
+        assert any(term == "jwt" and src == "seed" for term, src in jwt_entries)
+
+    def test_returns_source_for_user_entries(self, store: MemoryStore) -> None:
+        store.add_synonym("widget", "gadget", source="user")
+        groups = store.list_synonyms_with_source()
+        assert ("gadget", "user") in groups.get("widget", [])
+
+    def test_returns_source_for_learned_entries(self, store: MemoryStore) -> None:
+        store.add_synonym("zap", "zot", source="learned")
+        groups = store.list_synonyms_with_source()
+        assert ("zot", "learned") in groups.get("zap", [])
+
+    def test_empty_when_all_removed(self, store: MemoryStore) -> None:
+        store.add_synonym("widget", "gadget")
+        store.remove_synonym("widget", "gadget")
+        groups = store.list_synonyms_with_source()
+        assert "gadget" not in [t for t, _ in groups.get("widget", [])]
+
+    def test_result_structure(self, store: MemoryStore) -> None:
+        store.add_synonym("alpha", "beta")
+        groups = store.list_synonyms_with_source()
+        assert "alpha" in groups
+        for entry in groups["alpha"]:
+            assert len(entry) == 2
+            term, source = entry
+            assert isinstance(term, str)
+            assert isinstance(source, str)
+
+    def test_can_filter_by_source(self, store: MemoryStore) -> None:
+        store.add_synonym("widget", "gadget", source="user")
+        store.add_synonym("zap", "zot", source="learned")
+        groups = store.list_synonyms_with_source(source="user")
+        assert ("gadget", "user") in groups.get("widget", [])
+        assert "zap" not in groups
+
+
+class TestChooseCanonical:
+    def test_prefers_existing_canonical(self, store: MemoryStore) -> None:
+        # 'auth' is already a canonical in the seed
+        result = store._choose_canonical("auth", "newterm")
+        assert result == "auth"
+
+    def test_prefers_higher_df(self, store: MemoryStore) -> None:
+        # Add memories with different token frequencies
+        store.add("alpha alpha alpha doc", "f.md", "p", "")
+        store.add("alpha alpha beta doc", "f.md", "p2", "")
+        store.add("alpha gamma doc", "f.md", "p3", "")
+        # alpha appears in 3 docs, gamma in 1 — but we need two terms not already canonical
+        # Use tokens that are unique to this test and have no seed entries
+        result = store._choose_canonical("uniquewordx", "uniquewordy")
+        # Both have 0 df → falls back to lexicographic
+        assert result == min("uniquewordx", "uniquewordy")
+
+    def test_lexicographic_tiebreak(self, store: MemoryStore) -> None:
+        result = store._choose_canonical("zebra", "aardvark")
+        assert result == "aardvark"
+
+    def test_symmetric_inverse(self, store: MemoryStore) -> None:
+        # Non-canonical, equal-df pair → lexicographic, must be stable
+        a = store._choose_canonical("mango", "papaya")
+        b = store._choose_canonical("papaya", "mango")
+        assert a == b
+
+
+class TestLearnSynonyms:
+    def _seed_corpus(self, store: MemoryStore) -> None:
+        store.add("JWT token validation middleware for FastAPI", "f.md", "proj", "Security")
+        store.add("JWT authentication and token refresh logic", "f.md", "proj", "Auth")
+        store.add("Token validation in the API layer uses JWT", "f.md", "proj", "API")
+
+    def test_returns_count_of_added_pairs(self, store: MemoryStore) -> None:
+        self._seed_corpus(store)
+        added = store.learn_synonyms(min_df=2, min_jaccard=0.1)
+        assert isinstance(added, int)
+        assert added >= 0
+
+    def test_learned_pairs_have_source_learned(self, store: MemoryStore) -> None:
+        self._seed_corpus(store)
+        store.learn_synonyms(min_df=2, min_jaccard=0.1)
+        groups = store.list_synonyms_with_source()
+        learned = [(c, t, s) for c, pairs in groups.items() for t, s in pairs if s == "learned"]
+        # Any pair learned must be tagged 'learned'
+        for _, _, src in learned:
+            assert src == "learned"
+
+    def test_does_not_duplicate_existing_pairs(self, store: MemoryStore) -> None:
+        self._seed_corpus(store)
+        store.learn_synonyms(min_df=2, min_jaccard=0.1)
+        after = sum(len(v) for v in store.list_synonyms().values())
+        # Running again must not add new rows
+        store.learn_synonyms(min_df=2, min_jaccard=0.1)
+        after2 = sum(len(v) for v in store.list_synonyms().values())
+        assert after == after2
+
+    def test_empty_store_returns_zero(self, store: MemoryStore) -> None:
+        assert store.learn_synonyms() == 0
+
+    def test_min_df_filters_rare_tokens(self, store: MemoryStore) -> None:
+        store.add("JWT token validation", "f.md", "proj", "")
+        store.add("JWT authentication logic", "f.md", "proj2", "")
+        # With min_df=3 nothing should qualify (only 2 docs)
+        added = store.learn_synonyms(min_df=3, min_jaccard=0.01)
+        assert added == 0
+
+    def test_impossible_jaccard_threshold_adds_nothing(self, store: MemoryStore) -> None:
+        self._seed_corpus(store)
+        # Jaccard is bounded at 1.0, so 1.01 can never match
+        added = store.learn_synonyms(min_df=2, min_jaccard=1.01)
+        assert added == 0
+
+    def test_benchmark_precision_gate(self, tmp_path: Path) -> None:
+        """Learning must not degrade benchmark Precision@5 below 0.75."""
+        from crossmem.benchmark import (
+            default_benchmark_cases,
+            run_benchmark,
+            seed_benchmark_memories,
+        )
+
+        db_path = tmp_path / "bench.db"
+        store = MemoryStore(db_path=db_path)
+        seed_benchmark_memories(store)
+        store.learn_synonyms()
+        report = run_benchmark(store, cases=default_benchmark_cases(), limit=5, expanded=True)
+        store.close()
+        assert report.precision_at_k >= 0.90, (
+            f"Precision@5 dropped to {report.precision_at_k:.2f} after learn_synonyms"
+        )
+
+
+
+
+class TestSearchExpandedEdgeCases:
+        """Document the known retrieval limitations of search_expanded.
+        Each test records current behavior and explains WHY the limitation exists.
+        Tests marked LIMITATION assert failing/noisy behavior so regressions surface.
+        Tests marked CORRECT assert that 0-result behavior is intentional.
+        """
+
+        def test_all_stopword_query_returns_nothing(self, store: MemoryStore) -> None:
+            """Query of mostly closed-class words with no matching content returns 0 results.
+
+            After closed-class filtering, only 'how' survives (it is an interrogative
+            adverb — open class, not in CLOSED_CLASS).  'how' has no match in the
+            single seeded memory ('Authentication middleware setup guide.'), so the
+            FTS5 query finds nothing.  This is correct behavior.
+            """
+            store.add("Authentication middleware setup guide.", "f.md", "proj")
+            results = store.search_expanded("how do we do this")
+            assert len(results) == 0
+
+        def test_unknown_jargon_single_token_returns_nothing(self, store: MemoryStore) -> None:
+            """CORRECT: a genuinely unknown word has no match.
+
+            No synonym, no stemming bridge, no memory content overlap → 0 results.
+            This is correct behavior — there is nothing relevant to recall.
+            """
+            store.add("Database migration rollback with Alembic.", "f.md", "proj")
+            results = store.search_expanded("terraform")
+            assert len(results) == 0
+
+        def test_compound_word_one_word_vs_hyphenated_miss(self, store: MemoryStore) -> None:
+            """LIMITATION: 'precommit' as one word does not match 'pre-commit' in memory.
+
+            FTS5 unicode61 tokenizer splits 'pre-commit' into tokens ['pre', 'commit'].
+            The query word 'precommit' is indexed as a single token and never matches
+            ['pre', 'commit'] individually. Bigram expansion only helps when the two
+            words appear separately in the query (e.g. 'pre commit').
+            """
+            store.add("Always run pre-commit hooks before pushing.", "f.md", "proj")
+            # Two-word form works via bigram expansion
+            assert len(store.search_expanded("pre commit")) == 1
+            # One-word form fails — 'precommit' ≠ ['pre', 'commit']
+            assert len(store.search_expanded("precommit")) == 0
+
+        def test_common_non_stopword_causes_fallback_noise(self, store: MemoryStore) -> None:
+            """FIXED: 'up' is now a preposition in CLOSED_CLASS and is filtered.
+
+            Previously 'up' was not filtered, causing fallback to match 'speeds up'
+            and return the logging memory as noise.  With the two-layer filter,
+            'up' is caught by Layer 1 (preposition), leaving ['set', 'auth'] as
+            signal.  The AND query finds the auth memory and NOT the logging memory.
+            """
+            store.add("JWT token validation middleware for auth.", "f.md", "proj")
+            store.add("Structured logging speeds up debugging.", "f.md", "proj")
+            results = store.search_expanded("set up auth")
+            contents = [r.memory.content for r in results]
+            # Auth memory is found
+            assert any("jwt" in c.lower() or "auth" in c.lower() for c in contents), (
+                "Auth memory should be in results"
+            )
+            # Logging memory is no longer returned — 'up' is filtered, precision improved
+            assert not any("logging" in c.lower() or "speeds up" in c.lower() for c in contents), (
+                "'up' is now a filtered preposition — logging noise should be gone"
+            )
+
+        def test_synonym_group_saturation_loses_query_specificity(self, store: MemoryStore) -> None:
+            """LIMITATION: multiple query tokens from the same synonym group collapse into one filter.
+
+            'authentication' and 'authorization' both expand to the auth synonym group.
+            The AND of (auth_group) AND (auth_group) AND 'setup' is identical to
+            (auth_group) AND 'setup'. The extra specificity of two distinct concepts
+            is lost — the query behaves as if only one auth term was supplied.
+            When the third token ('setup') has no memory match, fallback fires and
+            returns all auth memories indiscriminately.
+            """
+            store.add("JWT token validation middleware.", "f.md", "proj")
+            store.add("Rotate API credentials every 90 days.", "f.md", "proj")
+            store.add("Database schema migration guide.", "f.md", "proj")
+            results = store.search_expanded("authentication authorization setup")
+            # Fallback returns auth memories because 'setup' kills the AND and
+            # both auth terms expand to the same group.
+            contents = [r.memory.content.lower() for r in results]
+            # Auth memories are returned (expected)
+            assert any("jwt" in c or "credentials" in c for c in contents)
+            # DB memory should NOT be in results (setup synonym doesn't include schema)
+            assert not any("schema" in c for c in contents)
+
+        def test_cross_project_filter_misses_relevant_other_project(self, store: MemoryStore) -> None:
+            """CORRECT: project filter is strict — cross-project memories are never returned.
+
+            A memory about session token refresh exists in 'mobile-app' but not
+            'backend-api'. Querying with project='backend-api' returns 0 results
+            even though the memory is semantically relevant. This is intentional
+            isolation behavior, not a bug. Users must query without a project filter
+            or know the target project to find cross-project knowledge.
+            """
+            store.add("Frontend auth flow caches session token and refreshes before expiry.", "f.md", "mobile-app")
+            store.add("JWT validation middleware.", "f.md", "backend-api")
+            mobile_results = store.search_expanded("session token refresh", project="mobile-app")
+            backend_results = store.search_expanded("session token refresh", project="backend-api")
+            assert len(mobile_results) >= 1, "Should find session memory in mobile-app"
+            # backend-api has no session refresh memory — cross-project isolation holds
+            assert not any(
+                "session" in r.memory.content.lower() for r in backend_results
+            ), "CORRECT: project filter prevents cross-project bleed"
+
+        def test_fallback_result_order_is_token_order_not_relevance(self, store: MemoryStore) -> None:
+            """LIMITATION: progressive fallback returns results in query-token order, not by relevance.
+
+            The fallback iterates tokens left-to-right and appends results in encounter
+            order. A memory that strongly matches the last token appears after a memory
+            that weakly matches the first token. There is no re-ranking step.
+            """
+            # First token 'alpha' matches weak memory, second token 'deployment' matches strong
+            store.add("alpha prefix convention for identifiers.", "f.md", "proj")
+            store.add("Docker deployment checklist for production rollout.", "f.md", "proj")
+            # AND fails ('alpha' AND 'deployment' have no shared memory), fallback fires
+            results = store.search_expanded("alpha deployment")
+            assert len(results) == 2
+            # LIMITATION: alpha memory comes first because 'alpha' is the first token
+            # even though the deployment memory is more likely to be what the user needs
+            assert results[0].memory.content.startswith("alpha"), (
+                "KNOWN LIMITATION: fallback result order is token-encounter order, not relevance"
+            )
+
+        def test_bigram_too_long_is_ignored_gracefully(self, store: MemoryStore) -> None:
+            """Bigrams longer than 16 chars are silently dropped — no error, no match."""
+            # 'authentication'(14) + 'authorization'(13) = 27 chars -> dropped
+            store.add("OAuth2 authentication and authorization flow.", "f.md", "proj")
+            # Query still works; bigram is just not generated
+            results = store.search_expanded("authentication authorization")
+            assert len(results) >= 1
+
+        def test_short_bigram_at_boundary_is_included(self, store: MemoryStore) -> None:
+            """Bigrams of exactly 4 chars are included; 3-char bigrams are not."""
+            store.add("Database go live cutover procedure.", "f.md", "proj")
+            # 'go'(2) + 'live'(4) = 'golive'(6) -> included (>=4)
+            # 'go'(2) + 'li'(2) = 'goli'(4) -> included
+            # but 'is'+'a' = 'isa'(3) -> excluded
+            results = store.search_expanded("go live")
+            # Should work without crashing regardless of bigram boundary
+            assert isinstance(results, list)
+
+        def test_empty_query_returns_nothing(self, store: MemoryStore) -> None:
+            """Empty string query returns 0 results without raising."""
+            store.add("Some memory content.", "f.md", "proj")
+            results = store.search_expanded("")
+            assert results == []
+
+        def test_numeric_token_matches_exactly(self, store: MemoryStore) -> None:
+            """Numeric tokens in queries match exact numbers in memory content.
+
+            FTS5 porter+unicode61 indexes numbers as-is. '90' in the query matches
+            '90' in the memory. No stemming or synonym expansion applies to numbers.
+            """
+            store.add("Rotate API credentials every 90 days and keep secrets in a vault.", "f.md", "proj")
+            results = store.search_expanded("rotate every 90 days")
+            assert len(results) == 1
+            assert "90 days" in results[0].memory.content

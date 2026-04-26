@@ -6,110 +6,8 @@ import threading
 import webbrowser
 from collections import defaultdict
 
+from crossmem.stopwords import CLOSED_CLASS
 from crossmem.store import MemoryStore
-
-_STOP_WORDS = {
-    "the",
-    "a",
-    "an",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "being",
-    "have",
-    "has",
-    "had",
-    "do",
-    "does",
-    "did",
-    "will",
-    "would",
-    "could",
-    "should",
-    "may",
-    "might",
-    "can",
-    "shall",
-    "to",
-    "of",
-    "in",
-    "for",
-    "on",
-    "with",
-    "at",
-    "by",
-    "from",
-    "as",
-    "into",
-    "through",
-    "during",
-    "before",
-    "after",
-    "above",
-    "below",
-    "between",
-    "out",
-    "off",
-    "over",
-    "under",
-    "again",
-    "further",
-    "then",
-    "once",
-    "and",
-    "but",
-    "or",
-    "nor",
-    "not",
-    "no",
-    "so",
-    "if",
-    "that",
-    "this",
-    "these",
-    "those",
-    "it",
-    "its",
-    "all",
-    "each",
-    "every",
-    "both",
-    "few",
-    "more",
-    "most",
-    "other",
-    "some",
-    "such",
-    "only",
-    "own",
-    "same",
-    "than",
-    "too",
-    "very",
-    "just",
-    "about",
-    "use",
-    "used",
-    "using",
-    "also",
-    "new",
-    "one",
-    "two",
-    "first",
-    "last",
-    "file",
-    "files",
-    "run",
-    "set",
-    "get",
-    "add",
-    "see",
-    "e",
-    "g",
-}
 
 
 def build_graph_data(store: MemoryStore) -> dict:
@@ -179,12 +77,11 @@ def build_graph_data(store: MemoryStore) -> dict:
 
     # Cross-project edges via shared keywords in content
     project_keywords: dict[str, set[str]] = defaultdict(set)
-    stop_words = _STOP_WORDS
     for row in rows:
         words = set(
             w.lower().strip("`*_-()[]{}.,;:!?\"'#/\\") for w in row["content"].split() if len(w) > 2
         )
-        words -= stop_words
+        words -= CLOSED_CLASS
         project_keywords[row["project"]].update(words)
 
     # Find keyword overlap between project pairs

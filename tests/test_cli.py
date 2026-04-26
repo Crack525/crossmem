@@ -529,6 +529,40 @@ class TestInstallInstructions:
         # Copilot file is NOT written — use install-hook --tool copilot instead
         assert not copilot_path.exists()
 
+
+class TestSynonymsCli:
+    def test_list_filters_by_source(self, tmp_path: Path) -> None:
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        store.add_synonym("widget", "gadget", source="user")
+        store.add_synonym("zap", "zot", source="learned")
+        store.close()
+
+        runner = CliRunner()
+        with patch(
+            "crossmem.commands.core.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
+            result = runner.invoke(main, ["synonyms", "list", "--source", "user"])
+
+        assert result.exit_code == 0
+        assert "widget: gadget" in result.output
+        assert "zap:" not in result.output
+
+    def test_list_source_reports_empty_when_no_matches(self, tmp_path: Path) -> None:
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        store.add_synonym("widget", "gadget", source="user")
+        store.close()
+
+        runner = CliRunner()
+        with patch(
+            "crossmem.commands.core.MemoryStore",
+            return_value=MemoryStore(db_path=tmp_path / "test.db"),
+        ):
+            result = runner.invoke(main, ["synonyms", "list", "--source", "learned"])
+
+        assert result.exit_code == 0
+        assert result.output.strip() == "No synonyms defined."
+
     def test_preserves_existing_content(self, tmp_path: Path) -> None:
         """install-instructions only touches Gemini; existing Copilot content is untouched."""
         copilot_path = tmp_path / ".github" / "copilot-instructions.md"

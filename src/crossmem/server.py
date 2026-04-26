@@ -59,7 +59,7 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
         lines = [f'Found {len(results)} results for "{query}":\n']
         for i, result in enumerate(results, 1):
             mem = result.memory
-            lines.append(f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id})")
+            lines.append(f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id}) — to edit: mem_update(memory_id={mem.id}, content=...)")
             lines.append(f"    Source: {mem.source_file.split('/')[-1]}")
             lines.append(f"    {mem.snippet}")
             lines.append("")
@@ -120,9 +120,10 @@ def mem_recall(
     Args:
         project: Project name to recall memories for (auto-detected if omitted)
         cwd: Working directory path for auto-detection (defaults to os.getcwd())
-        query: Optional intent filter — returns only memories matching this query
-               (e.g., "release process", "auth setup"). If omitted, returns all
-               project memories sorted by tier (existing behavior unchanged).
+        query: Pass this whenever you know what the session is about — a short
+               phrase like "auth setup" or "deploy process" returns only the
+               relevant memories and uses fewer tokens. Omit only for a true
+               cold-start dump with no intent yet.
     """
     store = get_store()
     try:
@@ -167,6 +168,10 @@ def mem_recall(
                         label = f"{mem.project} / {mem.section}" if mem.section else mem.project
                         lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
                     lines.append("")
+                lines.append(
+                    "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
+                    "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
+                )
                 return "\n".join(lines)
 
             lines = [f"## {project} memories (scoped: {query!r}):\n"]
@@ -175,6 +180,10 @@ def mem_recall(
                 section = f" / {mem.section}" if mem.section else ""
                 lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
             lines.append("")
+            lines.append(
+                "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
+                "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
+            )
             return "\n".join(lines)
 
         # Get project-specific memories from the store
@@ -209,6 +218,10 @@ def mem_recall(
         if not lines:
             return f'No memories found for project "{project}". Run mem_ingest() first.'
 
+        lines.append(
+            "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
+            "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
+        )
         return "\n".join(lines)
     finally:
         store.close()
@@ -255,7 +268,19 @@ def mem_save(
         if result is None:
             return f"Memory already exists for project '{project}'."
 
-        return f"Saved to '{project}'" + (f" / {section}" if section else "") + f" (id: {result})"
+        msg = f"Saved to '{project}'" + (f" / {section}" if section else "") + f" (id: {result})"
+
+        # Surface similar memories so the agent can update instead of accumulating duplicates.
+        probe = " ".join(content.split()[:12])
+        similar = store.search_expanded(probe, limit=3, project=project)
+        similar = [r for r in similar if r.memory.id != result]
+        if similar:
+            hints = ", ".join(
+                f"id:{r.memory.id} — {r.memory.snippet[:60]}" for r in similar[:2]
+            )
+            msg += f"\nSimilar memories exist: {hints}. Use mem_update(id=...) if this overlaps."
+
+        return msg
     finally:
         store.close()
 

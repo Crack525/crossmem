@@ -7,59 +7,10 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_STOP_WORDS: frozenset[str] = frozenset(
-    {
-        "a",
-        "an",
-        "the",
-        "and",
-        "or",
-        "but",
-        "in",
-        "on",
-        "at",
-        "to",
-        "for",
-        "of",
-        "with",
-        "by",
-        "from",
-        "is",
-        "are",
-        "was",
-        "were",
-        "be",
-        "been",
-        "have",
-        "has",
-        "had",
-        "do",
-        "does",
-        "did",
-        "will",
-        "would",
-        "could",
-        "should",
-        "may",
-        "might",
-        "it",
-        "its",
-        "this",
-        "that",
-        "these",
-        "those",
-        "i",
-        "we",
-        "you",
-        "he",
-        "she",
-        "they",
-        "my",
-        "our",
-        "your",
-        "their",
-    }
-)
+from crossmem.stopwords import CLOSED_CLASS, partition_query
+
+# Backward-compatible alias — callers that imported _STOP_WORDS directly still work.
+_STOP_WORDS: frozenset[str] = CLOSED_CLASS
 
 
 @dataclass
@@ -97,63 +48,70 @@ _SYNONYMS_SEED_SQL = """
 CREATE TABLE IF NOT EXISTS synonyms (
     canonical TEXT NOT NULL,
     term TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'seed',
     PRIMARY KEY (canonical, term)
 );
 
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'authentication');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'credential');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'credentials');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'jwt');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'token');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'login');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'oauth');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'oidc');
-INSERT OR IGNORE INTO synonyms VALUES ('auth', 'sso');
-INSERT OR IGNORE INTO synonyms VALUES ('deploy', 'deployment');
-INSERT OR IGNORE INTO synonyms VALUES ('deploy', 'release');
-INSERT OR IGNORE INTO synonyms VALUES ('deploy', 'publish');
-INSERT OR IGNORE INTO synonyms VALUES ('deploy', 'ship');
-INSERT OR IGNORE INTO synonyms VALUES ('deploy', 'rollout');
-INSERT OR IGNORE INTO synonyms VALUES ('deploy', 'push');
-INSERT OR IGNORE INTO synonyms VALUES ('pypi', 'pip');
-INSERT OR IGNORE INTO synonyms VALUES ('pypi', 'registry');
-INSERT OR IGNORE INTO synonyms VALUES ('pypi', 'wheel');
-INSERT OR IGNORE INTO synonyms VALUES ('pypi', 'sdist');
-INSERT OR IGNORE INTO synonyms VALUES ('version', 'semver');
-INSERT OR IGNORE INTO synonyms VALUES ('version', 'bump');
-INSERT OR IGNORE INTO synonyms VALUES ('version', 'tag');
-INSERT OR IGNORE INTO synonyms VALUES ('version', 'changelog');
-INSERT OR IGNORE INTO synonyms VALUES ('version', 'release');
-INSERT OR IGNORE INTO synonyms VALUES ('validate', 'validation');
-INSERT OR IGNORE INTO synonyms VALUES ('validate', 'verify');
-INSERT OR IGNORE INTO synonyms VALUES ('validate', 'verification');
-INSERT OR IGNORE INTO synonyms VALUES ('validate', 'check');
-INSERT OR IGNORE INTO synonyms VALUES ('validate', 'sanitize');
-INSERT OR IGNORE INTO synonyms VALUES ('process', 'steps');
-INSERT OR IGNORE INTO synonyms VALUES ('process', 'workflow');
-INSERT OR IGNORE INTO synonyms VALUES ('process', 'procedure');
-INSERT OR IGNORE INTO synonyms VALUES ('process', 'guide');
-INSERT OR IGNORE INTO synonyms VALUES ('process', 'howto');
-INSERT OR IGNORE INTO synonyms VALUES ('docker', 'container');
-INSERT OR IGNORE INTO synonyms VALUES ('docker', 'image');
-INSERT OR IGNORE INTO synonyms VALUES ('docker', 'compose');
-INSERT OR IGNORE INTO synonyms VALUES ('docker', 'kubernetes');
-INSERT OR IGNORE INTO synonyms VALUES ('docker', 'k8s');
-INSERT OR IGNORE INTO synonyms VALUES ('docker', 'pod');
-INSERT OR IGNORE INTO synonyms VALUES ('database', 'db');
-INSERT OR IGNORE INTO synonyms VALUES ('database', 'sql');
-INSERT OR IGNORE INTO synonyms VALUES ('database', 'schema');
-INSERT OR IGNORE INTO synonyms VALUES ('database', 'migration');
-INSERT OR IGNORE INTO synonyms VALUES ('database', 'orm');
-INSERT OR IGNORE INTO synonyms VALUES ('error', 'exception');
-INSERT OR IGNORE INTO synonyms VALUES ('error', 'failure');
-INSERT OR IGNORE INTO synonyms VALUES ('error', 'bug');
-INSERT OR IGNORE INTO synonyms VALUES ('error', 'crash');
-INSERT OR IGNORE INTO synonyms VALUES ('error', 'traceback');
-INSERT OR IGNORE INTO synonyms VALUES ('config', 'configuration');
-INSERT OR IGNORE INTO synonyms VALUES ('config', 'settings');
-INSERT OR IGNORE INTO synonyms VALUES ('config', 'env');
-INSERT OR IGNORE INTO synonyms VALUES ('config', 'environment');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'authentication', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'credential', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'credentials', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'jwt', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'token', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'login', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'oauth', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'oidc', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('auth', 'sso', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('deploy', 'deployment', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('deploy', 'release', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('deploy', 'publish', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('deploy', 'ship', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('deploy', 'rollout', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('deploy', 'push', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('pypi', 'pip', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('pypi', 'registry', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('pypi', 'wheel', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('pypi', 'sdist', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('version', 'semver', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('version', 'bump', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('version', 'tag', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('version', 'changelog', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('version', 'release', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('validate', 'validation', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('validate', 'verify', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source)
+    VALUES ('validate', 'verification', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('validate', 'check', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('validate', 'sanitize', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('process', 'steps', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('process', 'workflow', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('process', 'procedure', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('process', 'guide', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('process', 'howto', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('process', 'checklist', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('docker', 'container', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('docker', 'image', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('docker', 'compose', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('docker', 'kubernetes', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('docker', 'k8s', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('docker', 'pod', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('database', 'db', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('database', 'sql', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('database', 'schema', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('database', 'migration', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('database', 'orm', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('error', 'exception', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('error', 'failure', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('error', 'bug', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('error', 'crash', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('error', 'traceback', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('config', 'configuration', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('config', 'settings', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('config', 'env', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('config', 'environment', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('variables', 'vars', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('keep', 'store', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('rollback', 'roll', 'seed');
+INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES ('rollback', 'revert', 'seed');
 """
 
 
@@ -223,6 +181,7 @@ class MemoryStore:
         """,
         ),
         (2, None),  # sentinel — handled by _run_migration_2()
+        (3, None),  # sentinel — handled by _run_migration_3()
     ]
 
     def _init_schema(self) -> None:
@@ -238,7 +197,12 @@ class MemoryStore:
         for version, sql in self._MIGRATIONS:
             if version > current:
                 if sql is None:
-                    self._run_migration_2()
+                    if version == 2:
+                        self._run_migration_2()
+                    elif version == 3:
+                        self._run_migration_3()
+                    else:
+                        raise RuntimeError(f"Unsupported migration sentinel: {version}")
                 else:
                     self.db.executescript(sql)
                 self.db.execute(
@@ -293,6 +257,26 @@ class MemoryStore:
         """)
 
         # Step 4: Create synonyms table and seed data
+        self.db.executescript(_SYNONYMS_SEED_SQL)
+
+    def _run_migration_3(self) -> None:
+        """Idempotent migration: add synonyms.source provenance column."""
+        cols = {row[1] for row in self.db.execute("PRAGMA table_info(synonyms)").fetchall()}
+        if "source" not in cols:
+            self.db.executescript("""
+                ALTER TABLE synonyms RENAME TO synonyms_old;
+                CREATE TABLE synonyms (
+                    canonical TEXT NOT NULL,
+                    term TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'seed',
+                    PRIMARY KEY (canonical, term)
+                );
+                INSERT OR IGNORE INTO synonyms (canonical, term, source)
+                SELECT canonical, term, 'seed' FROM synonyms_old;
+                DROP TABLE synonyms_old;
+            """)
+
+        # Re-seed as source='seed' to keep default groups present on all DBs.
         self.db.executescript(_SYNONYMS_SEED_SQL)
 
     def add(
@@ -419,27 +403,76 @@ class MemoryStore:
         limit: int = 10,
         project: str | None = None,
     ) -> list[SearchResult]:
-        """AND-of-ORs FTS search with synonym expansion across all 4 FTS columns.
+        """AND-of-ORs FTS search with synonym expansion and compound bigram handling.
 
-        Each query word expands to an OR group (word + synonyms); all groups AND'd.
-        Falls back to exact AND when no synonyms defined for query words.
-        Searches content, project, section, AND keywords columns.
+        Each query token expands to an OR group containing:
+        - the token itself
+        - its synonyms from the synonym table
+        - any adjacent bigrams (w_i + w_{i+1}) it participates in
+
+        Bigram expansion fixes compound-word gaps: the query "roll back migration"
+        adds "rollback" to both "roll" and "back" OR groups, so a memory containing
+        "rollback" satisfies both groups without needing "roll" and "back" as
+        separate tokens.
+
+        Progressive fallback: when the AND query returns 0 results and the query
+        has more than one token, retries each token individually and merges unique
+        results up to limit. This handles vocabulary gaps where the agent uses
+        different words than those in the stored memory.
         """
-        words = [w for w in re.findall(r"[a-z0-9]+", query.lower()) if w not in _STOP_WORDS]
+        raw_tokens = re.findall(r"[a-z0-9]+", query.lower())
+        corpus_size = self.db.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        words, _ = partition_query(raw_tokens, self.db, corpus_size)
         if not words:
             return self.search(query, limit=limit, project=project)
 
         groups = self._get_synonym_groups()
 
-        and_parts = []
-        for word in words:
-            synonyms = groups.get(word, frozenset())
-            group = synonyms | {word}
-            terms = [self._quote_fts_term(w) for w in sorted(group)]
-            and_parts.append(f"({' OR '.join(terms)})" if len(terms) > 1 else terms[0])
+        # Build per-index bigram sets: each adjacent pair contributes its
+        # concatenation to both participating indices.
+        bigrams_for: dict[int, set[str]] = {i: set() for i in range(len(words))}
+        for i in range(len(words) - 1):
+            bigram = words[i] + words[i + 1]
+            if 4 <= len(bigram) <= 16:
+                bigrams_for[i].add(bigram)
+                bigrams_for[i + 1].add(bigram)
 
+        def _build_or_group(i: int, word: str) -> str:
+            synonyms = groups.get(word, frozenset())
+            group = synonyms | {word} | bigrams_for[i]
+            terms = [self._quote_fts_term(w) for w in sorted(group)]
+            return f"({' OR '.join(terms)})" if len(terms) > 1 else terms[0]
+
+        and_parts = [_build_or_group(i, w) for i, w in enumerate(words)]
         fts_query = " AND ".join(and_parts)
 
+        rows = self._execute_fts(fts_query, project=project, limit=limit)
+
+        # Progressive fallback: when AND returns nothing, search per token and
+        # merge unique results. Only fires for multi-token queries.
+        if not rows and len(words) > 1:
+            seen_ids: set[int] = set()
+            fallback_rows = []
+            for i, word in enumerate(words):
+                token_query = _build_or_group(i, word)
+                for row in self._execute_fts(token_query, project=project, limit=limit):
+                    if row["id"] not in seen_ids:
+                        seen_ids.add(row["id"])
+                        fallback_rows.append(row)
+                if len(fallback_rows) >= limit:
+                    break
+            rows = fallback_rows[:limit]
+
+        return self._rows_to_results(rows)
+
+    def _execute_fts(
+        self,
+        fts_query: str,
+        *,
+        project: str | None,
+        limit: int,
+    ) -> list[sqlite3.Row]:
+        """Execute a raw FTS5 MATCH query and return raw DB rows."""
         sql = """SELECT m.*, rank, highlight(memories_fts, 0, '>>>', '<<<') as hl
                  FROM memories_fts fts
                  JOIN memories m ON m.id = fts.rowid
@@ -450,8 +483,10 @@ class MemoryStore:
             params.append(project)
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)
+        return self.db.execute(sql, params).fetchall()
 
-        rows = self.db.execute(sql, params).fetchall()
+    def _rows_to_results(self, rows: list[sqlite3.Row]) -> list[SearchResult]:
+        """Convert raw FTS DB rows to SearchResult objects."""
         return [
             SearchResult(
                 memory=Memory(
@@ -529,14 +564,24 @@ class MemoryStore:
                     expansion.add(synonym)
         return " ".join(sorted(expansion))
 
-    def add_synonym(self, canonical: str, term: str) -> None:
+    def add_synonym(self, canonical: str, term: str, source: str = "user") -> None:
         """Add a synonym pair and invalidate the cache."""
         self.db.execute(
-            "INSERT OR IGNORE INTO synonyms VALUES (?, ?)",
+            "INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES (?, ?, ?)",
+            (canonical.lower(), term.lower(), source.lower()),
+        )
+        self.db.commit()
+        self._synonym_cache = None
+
+    def remove_synonym(self, canonical: str, term: str) -> bool:
+        """Remove a synonym pair. Returns True if a row was deleted."""
+        cursor = self.db.execute(
+            "DELETE FROM synonyms WHERE canonical = ? AND term = ?",
             (canonical.lower(), term.lower()),
         )
         self.db.commit()
         self._synonym_cache = None
+        return cursor.rowcount > 0
 
     def list_synonyms(self) -> dict[str, list[str]]:
         """Return all synonym groups as {canonical: [terms]}."""
@@ -547,6 +592,102 @@ class MemoryStore:
         for row in rows:
             result.setdefault(row["canonical"], []).append(row["term"])
         return result
+
+    def list_synonyms_with_source(
+        self, source: str | None = None
+    ) -> dict[str, list[tuple[str, str]]]:
+        """Return synonym groups with provenance, optionally filtered by source."""
+        sql = "SELECT canonical, term, source FROM synonyms"
+        params: list[str] = []
+        if source is not None:
+            sql += " WHERE source = ?"
+            params.append(source.lower())
+        sql += " ORDER BY canonical, term"
+        rows = self.db.execute(sql, params).fetchall()
+        result: dict[str, list[tuple[str, str]]] = {}
+        for row in rows:
+            result.setdefault(row["canonical"], []).append((row["term"], row["source"]))
+        return result
+
+    def _choose_canonical(self, a: str, b: str) -> str:
+        """Choose canonical: existing canonical > higher df > lexicographic."""
+        existing = {
+            row[0] for row in self.db.execute("SELECT DISTINCT canonical FROM synonyms").fetchall()
+        }
+        a_canonical = a in existing
+        b_canonical = b in existing
+        if a_canonical and not b_canonical:
+            return a
+        if b_canonical and not a_canonical:
+            return b
+        a_df = self.db.execute(
+            "SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH ?", (a,)
+        ).fetchone()[0]
+        b_df = self.db.execute(
+            "SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH ?", (b,)
+        ).fetchone()[0]
+        if a_df != b_df:
+            return a if a_df > b_df else b
+        return min(a, b)
+
+    def learn_synonyms(
+        self,
+        max_df_ratio: float = 0.5,
+        min_df: int = 3,
+        min_jaccard: float = 0.3,
+    ) -> int:
+        """Mine co-occurrence synonyms via Jaccard similarity. Returns new pairs added."""
+        rows = self.db.execute("SELECT content FROM memories").fetchall()
+        n = len(rows)
+        if n == 0:
+            return 0
+
+        max_df = max(int(max_df_ratio * n), 50)
+
+        doc_sets: dict[str, set[int]] = {}
+        for i, row in enumerate(rows):
+            tokens = set(re.findall(r"[a-z0-9]+", row["content"].lower())) - CLOSED_CLASS
+            for token in tokens:
+                doc_sets.setdefault(token, set()).add(i)
+
+        qualified = {
+            token: docs for token, docs in doc_sets.items() if min_df <= len(docs) <= max_df
+        }
+
+        existing: set[tuple[str, str]] = set()
+        known_words: set[str] = set()
+        for row in self.db.execute("SELECT canonical, term FROM synonyms").fetchall():
+            existing.add((row["canonical"], row["term"]))
+            existing.add((row["term"], row["canonical"]))
+            known_words.add(row["canonical"])
+            known_words.add(row["term"])
+
+        tokens_list = sorted(qualified.keys())
+        added = 0
+        for i, a in enumerate(tokens_list):
+            if a in known_words:
+                continue
+            docs_a = qualified[a]
+            for b in tokens_list[i + 1 :]:
+                if b in known_words:
+                    continue
+                docs_b = qualified[b]
+                intersection = len(docs_a & docs_b)
+                if intersection == 0:
+                    continue
+                jaccard = intersection / len(docs_a | docs_b)
+                if jaccard < min_jaccard:
+                    continue
+                if (a, b) in existing or (b, a) in existing:
+                    continue
+                canonical = self._choose_canonical(a, b)
+                term = b if canonical == a else a
+                self.add_synonym(canonical, term, source="learned")
+                existing.add((canonical, term))
+                existing.add((term, canonical))
+                added += 1
+
+        return added
 
     def get_all_for_backfill(self) -> list[Memory]:
         """Return all memories where keywords column is empty."""
