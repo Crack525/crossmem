@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from crossmem.server import mem_forget, mem_get, mem_save, mem_update, resolve_project
+from crossmem.server import mem_forget, mem_get, mem_recall, mem_save, mem_update, resolve_project
 from crossmem.store import MemoryStore
 
 KNOWN_PROJECTS = [
@@ -216,3 +216,46 @@ class TestMemGet:
         result = mem_get(memory_id=memories[0].id)
         assert "simple memory" in result
         assert "my-app" in result
+
+
+class TestMemRecallQueryParam:
+    def setup_method(self) -> None:
+        self._store = MemoryStore(db_path=Path(":memory:"))
+        self._store.close = lambda: None
+        self._patcher = patch("crossmem.server.get_store", return_value=self._store)
+        self._patcher.start()
+
+    def teardown_method(self) -> None:
+        self._patcher.stop()
+
+    def test_mem_recall_query_scopes_results(self) -> None:
+        self._store.add(
+            "PyPI publish process: bump version, build wheel, upload with twine",
+            "mcp:mem_save",
+            "crossmem",
+            "Release",
+        )
+        self._store.add(
+            "Use pytest fixtures for test isolation",
+            "mcp:mem_save",
+            "crossmem",
+            "Testing",
+        )
+        with patch("crossmem.server.os.getcwd", return_value="/tmp/crossmem"):
+            result = mem_recall(project="crossmem", query="release pypi")
+
+        memories = self._store.get_by_project("crossmem")
+        release_id = next(m.id for m in memories if "PyPI" in m.content)
+        assert str(release_id) in result
+
+    def test_mem_recall_query_fallback_on_no_results(self) -> None:
+        self._store.add(
+            "Always use middleware for auth",
+            "mcp:mem_save",
+            "crossmem",
+            "Auth",
+        )
+        with patch("crossmem.server.os.getcwd", return_value="/tmp/crossmem"):
+            result = mem_recall(project="crossmem", query="nonexistent xyzzy topic")
+
+        assert "No scoped results" in result

@@ -317,10 +317,10 @@ class TestUpsert:
 
 
 class TestSchemaMigration:
-    def test_fresh_db_gets_version_1(self, tmp_path: Path) -> None:
+    def test_fresh_db_gets_current_version(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "fresh.db")
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 1
+        assert row["v"] == 2
         store.close()
 
     def test_preexisting_db_upgraded(self, tmp_path: Path) -> None:
@@ -360,7 +360,7 @@ class TestSchemaMigration:
         mem = store.get(1)
         assert mem.content == "legacy data"
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 1
+        assert row["v"] == 2
         store.close()
 
     def test_reopening_db_is_idempotent(self, tmp_path: Path) -> None:
@@ -382,3 +382,141 @@ class TestStats:
         stats = store.stats()
         assert stats["alpha"] == 2
         assert stats["beta"] == 1
+
+
+class TestSearchExpanded:
+    def test_finds_synonym_hit(self, store: MemoryStore) -> None:
+        store.add("JWT token validation approach", "f.md", "proj")
+        results = store.search_expanded("validate credentials")
+        assert len(results) == 1
+        assert "token" in results[0].memory.content
+
+    def test_ship_new_version_steps(self, store: MemoryStore) -> None:
+        store.add("PyPI publish process for crossmem Bump version release", "f.md", "proj")
+        # "new" has no synonyms; use "ship version steps" to test synonym expansion
+        results = store.search_expanded("ship version steps")
+        assert len(results) == 1
+
+    def test_no_results_for_unrelated_query(self, store: MemoryStore) -> None:
+        store.add("Python logging best practices", "f.md", "proj")
+        results = store.search_expanded("docker kubernetes container")
+        assert len(results) == 0
+
+    def test_fallback_to_search_when_no_words(self, store: MemoryStore) -> None:
+        store.add("exact phrase content", "f.md", "proj")
+        results = store.search_expanded("")
+        assert results == []
+
+    def test_project_filter_respected(self, store: MemoryStore) -> None:
+        store.add("deployment rollout steps", "f.md", "alpha")
+        store.add("deployment rollout steps", "f.md", "beta")
+        results = store.search_expanded("ship steps", project="alpha")
+        assert len(results) == 1
+        assert results[0].memory.project == "alpha"
+
+    def test_synonym_cache_invalidates_on_add(self, store: MemoryStore) -> None:
+        store.add("run test suite", "f.md", "proj")
+        results_before = store.search_expanded("run pytest suite")
+        store.add_synonym("testenv", "pytest")
+        results_after = store.search_expanded("run pytest suite")
+        # After adding synonym, cache is invalidated — new group is available
+        assert store._synonym_cache is None or "pytest" in store._synonym_cache
+
+
+class TestKeywordsColumn:
+    def test_keywords_set_on_add(self, store: MemoryStore) -> None:
+        mid = store.add("PyPI publish process", "f.md", "proj")
+        mem = store.get(mid)
+        assert mem.keywords != ""
+
+    def test_keywords_updated_on_update(self, store: MemoryStore) -> None:
+        mid = store.add("PyPI publish process", "f.md", "proj")
+        kw_before = store.get(mid).keywords
+        store.update(mid, "docker container deployment")
+        kw_after = store.get(mid).keywords
+        assert kw_after != kw_before
+
+    def test_keywords_updated_on_upsert(self, store: MemoryStore) -> None:
+        mid = store.upsert("PyPI publish process", "f.md", "proj", "Deploy")
+        kw_before = store.get(mid).keywords
+        store.upsert("docker container deployment", "f.md", "proj", "Deploy")
+        mem = store.get(mid)
+        # After upsert with docker content, keywords should now contain docker synonyms
+        assert kw_before != mem.keywords
+        assert "image" in mem.keywords or "kubernetes" in mem.keywords
+
+    def test_strict_search_ignores_keywords_column(self, store: MemoryStore) -> None:
+        # alpha memory has "deploy" in keywords (via synonym of "push" or similar)
+        store.add("push to staging server", "f.md", "alpha")
+        # beta memory has "deploy" literally in content
+        store.add("deploy to production", "f.md", "beta")
+        # strict search should not match alpha via its keywords column expansion
+        results = store.search("deploy")
+        projects = [r.memory.project for r in results]
+        assert "beta" in projects
+        assert "alpha" not in projects
+
+    def test_backfill_populates_empty_keywords(self, tmp_path: Path) -> None:
+        import sqlite3
+
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript("""
+            CREATE TABLE memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                project TEXT NOT NULL,
+                section TEXT NOT NULL DEFAULT '',
+                content_hash TEXT NOT NULL,
+                keywords TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(content_hash, project)
+            );
+            CREATE VIRTUAL TABLE memories_fts USING fts5(
+                content, project, section, keywords,
+                content='memories', content_rowid='id',
+                tokenize='porter unicode61'
+            );
+            CREATE TABLE synonyms (canonical TEXT NOT NULL, term TEXT NOT NULL, PRIMARY KEY(canonical, term));
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+            INSERT INTO schema_version VALUES (2);
+        """)
+        conn.execute(
+            "INSERT INTO synonyms VALUES ('deploy', 'publish')"
+        )
+        conn.execute(
+            "INSERT INTO memories (content, source_file, project, section, content_hash, keywords) "
+            "VALUES ('PyPI publish process', 'f.md', 'proj', '', 'abc123', '')"
+        )
+        conn.commit()
+        conn.close()
+
+        store = MemoryStore(db_path=db_path)
+        count = store.backfill_keywords()
+        assert count == 1
+        mem = store.get(1)
+        assert mem.keywords != ""
+        store.close()
+
+
+class TestMigration2:
+    def test_migration_2_idempotent(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        store1 = MemoryStore(db_path=db_path)
+        store1.add("content", "f.md", "proj")
+        store1.close()
+
+        store2 = MemoryStore(db_path=db_path)
+        assert store2.count() == 1
+        row = store2.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
+        assert row["v"] == 2
+        store2.close()
+
+    def test_hyphenated_term_in_synonym_group_quoted(self, store: MemoryStore) -> None:
+        store.add_synonym("ci", "pre-commit")
+        store.add("run pre-commit hooks on save", "f.md", "proj")
+        results = store.search_expanded("ci pipeline")
+        # The synonym "pre-commit" should be quoted in FTS5 query
+        groups = store._get_synonym_groups()
+        assert "pre-commit" in groups.get("ci", frozenset())

@@ -18,6 +18,7 @@ from crossmem.store import MemoryStore
 mcp = FastMCP("crossmem")
 
 _ingested: bool = False
+_MCP_RECALL_LIMIT: int = 10
 
 
 def get_store() -> MemoryStore:
@@ -102,7 +103,11 @@ def resolve_project(cwd: str, known_projects: list[str]) -> str | None:
 
 
 @mcp.tool()
-def mem_recall(project: str | None = None, cwd: str | None = None) -> str:
+def mem_recall(
+    project: str | None = None,
+    cwd: str | None = None,
+    query: str | None = None,
+) -> str:
     """Recall relevant memories for a project at session start.
 
     Returns the project's own memories plus cross-project patterns
@@ -115,6 +120,9 @@ def mem_recall(project: str | None = None, cwd: str | None = None) -> str:
     Args:
         project: Project name to recall memories for (auto-detected if omitted)
         cwd: Working directory path for auto-detection (defaults to os.getcwd())
+        query: Optional intent filter — returns only memories matching this query
+               (e.g., "release process", "auth setup"). If omitted, returns all
+               project memories sorted by tier (existing behavior unchanged).
     """
     store = get_store()
     try:
@@ -134,6 +142,42 @@ def mem_recall(project: str | None = None, cwd: str | None = None) -> str:
                         f"Known projects: {', '.join(known)}\n"
                         "Pass an explicit project name to mem_recall(project=...)."
                     )
+
+        if query:
+            results = store.search_expanded(query, limit=_MCP_RECALL_LIMIT, project=project)
+            if not results:
+                # Fallback to full tier-sorted dump with notice
+                project_memories = store.get_by_project(project)
+                if not project_memories and has_project_docs(project_dir):
+                    ingest_project_docs(store, project_dir, project=project)
+                    project_memories = store.get_by_project(project)
+                shared_memories = store.get_shared_sections(project)
+                lines = [f'_(No scoped results for "{query}". Showing all {project} memories.)_\n']
+                if project_memories:
+                    lines.append(f"## {project} memories ({len(project_memories)}):\n")
+                    for mem in project_memories:
+                        section = f" / {mem.section}" if mem.section else ""
+                        lines.append(
+                            f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}"
+                        )
+                    lines.append("")
+                if shared_memories:
+                    lines.append(
+                        f"## Cross-project patterns ({len(shared_memories)} from other projects):\n"
+                    )
+                    for mem in shared_memories:
+                        label = f"{mem.project} / {mem.section}" if mem.section else mem.project
+                        lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+                    lines.append("")
+                return "\n".join(lines)
+
+            lines = [f"## {project} memories (scoped: {query!r}):\n"]
+            for i, result in enumerate(results, 1):
+                mem = result.memory
+                section = f" / {mem.section}" if mem.section else ""
+                lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
+            lines.append("")
+            return "\n".join(lines)
 
         # Get project-specific memories from the store
         project_memories = store.get_by_project(project)
