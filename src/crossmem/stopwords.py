@@ -35,58 +35,218 @@ import sqlite3
 
 ARTICLES: frozenset[str] = frozenset({"a", "an", "the"})
 
-PREPOSITIONS: frozenset[str] = frozenset({
-    "about", "above", "across", "after", "against", "along", "among",
-    "around", "at", "before", "behind", "below", "beneath", "beside",
-    "between", "beyond", "by", "down", "during", "except", "for",
-    "from", "in", "inside", "into", "like", "near", "of", "off", "on",
-    "onto", "out", "outside", "over", "past", "since", "through",
-    "throughout", "till", "to", "toward", "towards", "under",
-    "underneath", "until", "up", "upon", "with", "within", "without",
-})
+PREPOSITIONS: frozenset[str] = frozenset(
+    {
+        "about",
+        "above",
+        "across",
+        "after",
+        "against",
+        "along",
+        "among",
+        "around",
+        "at",
+        "before",
+        "behind",
+        "below",
+        "beneath",
+        "beside",
+        "between",
+        "beyond",
+        "by",
+        "down",
+        "during",
+        "except",
+        "for",
+        "from",
+        "in",
+        "inside",
+        "into",
+        "like",
+        "near",
+        "of",
+        "off",
+        "on",
+        "onto",
+        "out",
+        "outside",
+        "over",
+        "past",
+        "since",
+        "through",
+        "throughout",
+        "till",
+        "to",
+        "toward",
+        "towards",
+        "under",
+        "underneath",
+        "until",
+        "up",
+        "upon",
+        "with",
+        "within",
+        "without",
+    }
+)
 
-PRONOUNS: frozenset[str] = frozenset({
-    "i", "me", "my", "mine", "myself",
-    "you", "your", "yours", "yourself", "yourselves",
-    "he", "him", "his", "himself",
-    "she", "her", "hers", "herself",
-    "it", "its", "itself",
-    "we", "us", "our", "ours", "ourselves",
-    "they", "them", "their", "theirs", "themselves",
-    "who", "whom", "whose", "which", "that",
-    "this", "these", "those",
-    "what", "whatever", "whichever", "whoever", "whomever",
-    "each", "every", "either", "neither", "both", "all", "any",
-    "few", "many", "several", "some", "none", "other", "another",
-})
+PRONOUNS: frozenset[str] = frozenset(
+    {
+        "i",
+        "me",
+        "my",
+        "mine",
+        "myself",
+        "you",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
+        "he",
+        "him",
+        "his",
+        "himself",
+        "she",
+        "her",
+        "hers",
+        "herself",
+        "it",
+        "its",
+        "itself",
+        "we",
+        "us",
+        "our",
+        "ours",
+        "ourselves",
+        "they",
+        "them",
+        "their",
+        "theirs",
+        "themselves",
+        "who",
+        "whom",
+        "whose",
+        "which",
+        "that",
+        "this",
+        "these",
+        "those",
+        "what",
+        "whatever",
+        "whichever",
+        "whoever",
+        "whomever",
+        "each",
+        "every",
+        "either",
+        "neither",
+        "both",
+        "all",
+        "any",
+        "few",
+        "many",
+        "several",
+        "some",
+        "none",
+        "other",
+        "another",
+    }
+)
 
-CONJUNCTIONS: frozenset[str] = frozenset({
-    "and", "but", "or", "nor", "for", "yet", "so",
-    "although", "because", "if", "once", "since", "than",
-    "though", "unless", "until", "when", "whenever", "where",
-    "wherever", "while", "whether",
-})
+CONJUNCTIONS: frozenset[str] = frozenset(
+    {
+        "and",
+        "but",
+        "or",
+        "nor",
+        "for",
+        "yet",
+        "so",
+        "although",
+        "because",
+        "if",
+        "once",
+        "since",
+        "than",
+        "though",
+        "unless",
+        "until",
+        "when",
+        "whenever",
+        "where",
+        "wherever",
+        "while",
+        "whether",
+    }
+)
 
-AUXILIARIES: frozenset[str] = frozenset({
-    "am", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "having",
-    "do", "does", "did",
-    "will", "would", "shall", "should",
-    "may", "might", "can", "could", "must",
-    "need", "dare", "ought",
-})
+AUXILIARIES: frozenset[str] = frozenset(
+    {
+        "am",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "having",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "may",
+        "might",
+        "can",
+        "could",
+        "must",
+        "need",
+        "dare",
+        "ought",
+    }
+)
 
-DETERMINERS: frozenset[str] = frozenset({
-    "the", "a", "an", "this", "that", "these", "those",
-    "my", "your", "his", "her", "its", "our", "their",
-    "much", "many", "more", "most", "less", "least", "few",
-    "no", "not", "only", "own", "same", "such",
-})
+DETERMINERS: frozenset[str] = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "this",
+        "that",
+        "these",
+        "those",
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+        "much",
+        "many",
+        "more",
+        "most",
+        "less",
+        "least",
+        "few",
+        "no",
+        "not",
+        "only",
+        "own",
+        "same",
+        "such",
+    }
+)
 
 # Union of all six categories — the primary export for batch filtering.
 CLOSED_CLASS: frozenset[str] = (
-    ARTICLES | PREPOSITIONS | PRONOUNS | CONJUNCTIONS
-    | AUXILIARIES | DETERMINERS
+    ARTICLES | PREPOSITIONS | PRONOUNS | CONJUNCTIONS | AUXILIARIES | DETERMINERS
 )
 
 # ---------------------------------------------------------------------------
@@ -98,20 +258,50 @@ CLOSED_CLASS: frozenset[str] = (
 # Keep this list minimal: only include words that carry zero search value
 # in prompts but would potentially have signal in stored memories.
 
-CONVERSATIONAL_FILLER: frozenset[str] = frozenset({
-    # Affirmations / acknowledgements
-    "yes", "yeah", "yep", "ok", "okay", "sure", "right",
-    "good", "great", "cool", "nice", "fine", "done",
-    # Politeness markers
-    "please", "thanks", "thank",
-    # Hedges / intensifiers with no information value in prompts
-    "just", "also", "really", "actually", "pretty",
-    "well", "still", "ahead", "continue",
-    # Location/time adverbs that add no search signal
-    "here", "there", "now", "then",
-    # Vague filler nouns
-    "stuff", "things", "thing", "something", "anything", "interesting",
-})
+CONVERSATIONAL_FILLER: frozenset[str] = frozenset(
+    {
+        # Affirmations / acknowledgements
+        "yes",
+        "yeah",
+        "yep",
+        "ok",
+        "okay",
+        "sure",
+        "right",
+        "good",
+        "great",
+        "cool",
+        "nice",
+        "fine",
+        "done",
+        # Politeness markers
+        "please",
+        "thanks",
+        "thank",
+        # Hedges / intensifiers with no information value in prompts
+        "just",
+        "also",
+        "really",
+        "actually",
+        "pretty",
+        "well",
+        "still",
+        "ahead",
+        "continue",
+        # Location/time adverbs that add no search signal
+        "here",
+        "there",
+        "now",
+        "then",
+        # Vague filler nouns
+        "stuff",
+        "things",
+        "thing",
+        "something",
+        "anything",
+        "interesting",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Layer 2: Corpus-adaptive IDF via FTS5 MATCH
