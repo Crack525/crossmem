@@ -468,6 +468,7 @@ def prompt_search() -> None:
         return
 
     import re as _re
+
     from crossmem.stopwords import CLOSED_CLASS, CONVERSATIONAL_FILLER
 
     combined_stop = CLOSED_CLASS | CONVERSATIONAL_FILLER | HOOK_META_WORDS

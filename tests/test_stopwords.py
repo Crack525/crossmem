@@ -22,7 +22,6 @@ from crossmem.stopwords import (
 )
 from crossmem.store import MemoryStore
 
-
 # ---------------------------------------------------------------------------
 # Static set integrity
 # ---------------------------------------------------------------------------
@@ -76,14 +75,23 @@ class TestClosedClassConstants:
 
     def test_domain_terms_not_in_closed_class(self) -> None:
         domain_terms = [
-            "jwt", "docker", "rollback", "migration", "credential",
-            "deploy", "release", "auth", "testing", "logging",
-            "oauth", "kubernetes", "terraform", "redis",
+            "jwt",
+            "docker",
+            "rollback",
+            "migration",
+            "credential",
+            "deploy",
+            "release",
+            "auth",
+            "testing",
+            "logging",
+            "oauth",
+            "kubernetes",
+            "terraform",
+            "redis",
         ]
         for term in domain_terms:
-            assert term not in CLOSED_CLASS, (
-                f"Domain term '{term}' incorrectly in CLOSED_CLASS"
-            )
+            assert term not in CLOSED_CLASS, f"Domain term '{term}' incorrectly in CLOSED_CLASS"
 
     def test_conversational_filler_contains_key_words(self) -> None:
         for word in ("yes", "ok", "please", "thanks", "just", "really"):
@@ -257,10 +265,10 @@ class TestPartitionQuery:
         # "what is the best way to deploy"
         tokens = ["what", "is", "the", "best", "way", "to", "deploy"]
         signal, noise = partition_query(tokens, real_store.db, cs)
-        assert "what" in noise   # pronoun
-        assert "is" in noise     # auxiliary
-        assert "the" in noise    # article
-        assert "to" in noise     # preposition
+        assert "what" in noise  # pronoun
+        assert "is" in noise  # auxiliary
+        assert "the" in noise  # article
+        assert "to" in noise  # preposition
         assert "deploy" in signal
         assert "best" in signal
         assert "way" in signal
@@ -268,8 +276,8 @@ class TestPartitionQuery:
     def test_zero_corpus_size_uses_layer1_only(self, real_store: MemoryStore) -> None:
         # corpus_size < _MIN_CORPUS_FOR_IDF → Layer 2 never fires, only Layer 1
         signal, noise = partition_query(["set", "up", "deploy"], real_store.db, 0)
-        assert "up" in noise       # Layer 1 catches it (preposition)
-        assert "set" in signal     # Not in closed-class, Layer 2 gated → signal
+        assert "up" in noise  # Layer 1 catches it (preposition)
+        assert "set" in signal  # Not in closed-class, Layer 2 gated → signal
         assert "deploy" in signal
 
     def test_threshold_controls_layer2(self, empty_db: sqlite3.Connection) -> None:

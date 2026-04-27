@@ -18,6 +18,11 @@ from crossmem.store import MemoryStore
 mcp = FastMCP("crossmem")
 
 _ingested: bool = False
+
+_SESSION_FOOTER = (
+    "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
+    "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
+)
 _MCP_RECALL_LIMIT: int = 10
 
 
@@ -59,7 +64,10 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
         lines = [f'Found {len(results)} results for "{query}":\n']
         for i, result in enumerate(results, 1):
             mem = result.memory
-            lines.append(f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id}) — to edit: mem_update(memory_id={mem.id}, content=...)")
+            lines.append(
+                f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id})"
+                f" — to edit: mem_update(memory_id={mem.id}, content=...)"
+            )
             lines.append(f"    Source: {mem.source_file.split('/')[-1]}")
             lines.append(f"    {mem.snippet}")
             lines.append("")
@@ -168,10 +176,7 @@ def mem_recall(
                         label = f"{mem.project} / {mem.section}" if mem.section else mem.project
                         lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
                     lines.append("")
-                lines.append(
-                    "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
-                    "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
-                )
+                lines.append(_SESSION_FOOTER)
                 return "\n".join(lines)
 
             lines = [f"## {project} memories (scoped: {query!r}):\n"]
@@ -180,10 +185,7 @@ def mem_recall(
                 section = f" / {mem.section}" if mem.section else ""
                 lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
             lines.append("")
-            lines.append(
-                "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
-                "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
-            )
+            lines.append(_SESSION_FOOTER)
             return "\n".join(lines)
 
         # Get project-specific memories from the store
@@ -218,10 +220,7 @@ def mem_recall(
         if not lines:
             return f'No memories found for project "{project}". Run mem_ingest() first.'
 
-        lines.append(
-            "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
-            "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
-        )
+        lines.append(_SESSION_FOOTER)
         return "\n".join(lines)
     finally:
         store.close()
@@ -275,9 +274,7 @@ def mem_save(
         similar = store.search_expanded(probe, limit=3, project=project)
         similar = [r for r in similar if r.memory.id != result]
         if similar:
-            hints = ", ".join(
-                f"id:{r.memory.id} — {r.memory.snippet[:60]}" for r in similar[:2]
-            )
+            hints = ", ".join(f"id:{r.memory.id} — {r.memory.snippet[:60]}" for r in similar[:2])
             msg += f"\nSimilar memories exist: {hints}. Use mem_update(id=...) if this overlaps."
 
         return msg
