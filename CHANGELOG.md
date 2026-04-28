@@ -2,6 +2,30 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.2.0] — 2026-04-28
+
+### Added
+
+- **Scope model** — memories now carry `scope='project'|'global'`. Project-scoped memories are returned only in their project's recall; global memories surface across all projects.
+- `auto_promote_patterns()` — promotes memories saved identically across 2+ projects to global scope automatically. Runs as part of `mem_recall` and `crossmem recall`.
+- `store.upsert()` — idempotent write: matches on `(project, section, source_file)`; updates content in place when changed, no-ops when identical. Used by `mem_ingest` and `ingest_project_docs` to safely re-run without duplicate rows.
+
+### Improved
+
+- **Project name accuracy** — `extract_project_name()` now strips the home-directory prefix before walking path segments, eliminating false project names like `"documents"` or `"personal"`.
+- `resolve_project()` now uses hyphen-boundary suffix matching, preventing `"my-app"` from matching a project named `"app"`.
+
+### Hardened
+
+- `store.add()` / `store.upsert()` / `store.update()` — reject non-string, `None`, and whitespace-only content with a clear `ValueError` instead of propagating downstream errors.
+- `store.search()` / `store.search_expanded()` — return `[]` immediately on non-string query (was `TypeError` in `re.findall`).
+- `_build_fts_query()` — blank quoted phrases are filtered before the FTS5 query is issued (prevented `'"  "'` from matching everything).
+- `auto_promote_patterns(min_projects=0)` logic bomb patched — `min_projects` is clamped to ≥ 1 so a zero argument never promotes all single-project memories to global.
+- `server.resolve_project()` — type-guards `cwd` before calling `Path(cwd)`.
+- `ingest_project_docs(project="")` — empty-string project now falls back to `derive_project_name()`.
+
+---
+
 ## [1.1.0] — 2026-04-26
 
 ### Improved

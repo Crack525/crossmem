@@ -20,7 +20,14 @@ from crossmem.store import MemoryStore
 class TestExtractProjectName:
     def test_standard_claude_path(self) -> None:
         path = Path.home() / ".claude/projects/-Users-foo-Documents-myproject/memory/MEMORY.md"
-        assert extract_project_name(path) == "Documents-myproject"
+        assert extract_project_name(path) == "myproject"
+
+    def test_personal_workspace_stripped(self) -> None:
+        path = (
+            Path.home()
+            / ".claude/projects/-Users-foo-Documents-PERSONAL-tokenxray/memory/MEMORY.md"
+        )
+        assert extract_project_name(path) == "tokenxray"
 
     def test_deep_path_takes_last_two(self) -> None:
         path = Path.home() / ".claude/projects/-Users-foo-work-backend-api/memory/MEMORY.md"

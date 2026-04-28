@@ -157,31 +157,39 @@ class TestMemUpdate:
         self._patcher.stop()
 
     def test_update_content(self) -> None:
-        mem_save(content="old info", project="my-app", section="Config")
+        mem_save(content="Old deployment info for my-app.", project="my-app", section="Config")
         memories = self._store.get_by_project("my-app")
-        result = mem_update(memory_id=memories[0].id, content="new info")
+        result = mem_update(memory_id=memories[0].id, content="New deployment info for my-app.")
         assert "Updated memory" in result
         assert "my-app" in result
         mem = self._store.get(memories[0].id)
-        assert mem.content == "new info"
+        assert mem.content == "New deployment info for my-app."
 
     def test_update_section(self) -> None:
-        mem_save(content="misplaced", project="my-app", section="Research")
+        mem_save(
+            content="Misplaced entry, belongs elsewhere.",
+            project="my-app",
+            section="Research",
+        )
         memories = self._store.get_by_project("my-app")
-        result = mem_update(memory_id=memories[0].id, content="corrected", section="Experiments")
+        result = mem_update(
+            memory_id=memories[0].id,
+            content="Corrected entry now in right section.",
+            section="Experiments",
+        )
         assert "Experiments" in result
         mem = self._store.get(memories[0].id)
         assert mem.section == "Experiments"
 
     def test_update_nonexistent(self) -> None:
-        result = mem_update(memory_id=9999, content="anything")
+        result = mem_update(memory_id=9999, content="This memory does not exist anywhere.")
         assert "not found" in result
 
     def test_update_preserves_id(self) -> None:
-        mem_save(content="original", project="my-app")
+        mem_save(content="Original content for my-app.", project="my-app")
         memories = self._store.get_by_project("my-app")
         original_id = memories[0].id
-        mem_update(memory_id=original_id, content="updated")
+        mem_update(memory_id=original_id, content="Updated content for my-app.")
         mem = self._store.get(original_id)
         assert mem is not None
         assert mem.id == original_id

@@ -320,7 +320,7 @@ class TestSchemaMigration:
     def test_fresh_db_gets_current_version(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "fresh.db")
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 3
+        assert row["v"] == 4
         store.close()
 
     def test_preexisting_db_upgraded(self, tmp_path: Path) -> None:
@@ -360,7 +360,7 @@ class TestSchemaMigration:
         mem = store.get(1)
         assert mem.content == "legacy data"
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 3
+        assert row["v"] == 4
         store.close()
 
     def test_reopening_db_is_idempotent(self, tmp_path: Path) -> None:
@@ -511,7 +511,7 @@ class TestMigration2:
         store2 = MemoryStore(db_path=db_path)
         assert store2.count() == 1
         row = store2.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 3
+        assert row["v"] == 4
         store2.close()
 
     def test_hyphenated_term_in_synonym_group_quoted(self, store: MemoryStore) -> None:
@@ -536,6 +536,75 @@ class TestRemoveSynonym:
         store._get_synonym_groups()  # populate cache
         store.remove_synonym("widget", "gadget")
         assert store._synonym_cache is None
+
+
+class TestFtsSpecialChars:
+    """Gap 1 — FTS5 safety: special chars like $, @ must not crash queries."""
+
+    def test_dollar_sign_query_does_not_raise(self, store: MemoryStore) -> None:
+        store.add("Use $TOKEN env var for auth", "f.md", "proj")
+        # Should not raise fts5: syntax error
+        results = store.search("$TOKEN")
+        assert isinstance(results, list)
+
+    def test_at_sign_query_does_not_raise(self, store: MemoryStore) -> None:
+        store.add("Contact admin@example.com for access", "f.md", "proj")
+        results = store.search("@example.com")
+        assert isinstance(results, list)
+
+    def test_dollar_sign_stripped_from_fts_query(self, store: MemoryStore) -> None:
+        fts = store._build_fts_query("$TOKEN config")
+        assert "$" not in fts
+
+    def test_at_sign_stripped_from_fts_query(self, store: MemoryStore) -> None:
+        fts = store._build_fts_query("@email.com")
+        assert "@" not in fts
+
+    def test_special_chars_only_query_returns_empty(self, store: MemoryStore) -> None:
+        results = store.search("$$ @@ ##")
+        assert results == []
+
+
+class TestGetGlobalMemoriesDedup:
+    """Gap 2 — get_global_memories deduplicates promoted cross-project patterns."""
+
+    def test_no_query_deduplicates_same_hash(self, store: MemoryStore) -> None:
+        content = "Always pin dependency versions to avoid supply chain drift."
+        store.add(content, "mcp:mem_save", "proj-a", scope="global")
+        store.add(content, "mcp:mem_save", "proj-b", scope="global")
+        mems = store.get_global_memories()
+        snippets = [m.snippet for m in mems]
+        assert snippets.count(snippets[0]) == 1
+
+    def test_query_deduplicates_same_hash(self, store: MemoryStore) -> None:
+        content = "Always pin dependency versions to avoid supply chain drift."
+        store.add(content, "mcp:mem_save", "proj-a", scope="global")
+        store.add(content, "mcp:mem_save", "proj-b", scope="global")
+        mems = store.get_global_memories(query="dependency")
+        assert len(mems) == 1
+
+    def test_query_uses_synonym_expansion(self, store: MemoryStore) -> None:
+        store.add_synonym("auth", "authentication")
+        store.add(
+            "Always validate authentication tokens on every request.",
+            "mcp:mem_save",
+            "proj-a",
+            scope="global",
+        )
+        mems = store.get_global_memories(query="auth")
+        assert len(mems) >= 1
+
+    def test_distinct_globals_all_returned(self, store: MemoryStore) -> None:
+        store.add("Pin dependency versions.", "mcp:mem_save", "proj-a", scope="global")
+        store.add("Use structured logging in production.", "mcp:mem_save", "proj-b", scope="global")
+        mems = store.get_global_memories()
+        assert len(mems) == 2
+
+    def test_search_expanded_scope_global_filter(self, store: MemoryStore) -> None:
+        store.add("global pattern memory", "mcp:mem_save", "proj-a", scope="global")
+        store.add("project-only memory", "mcp:mem_save", "proj-b", scope="project")
+        results = store.search_expanded("memory", scope="global")
+        assert all(r.memory.scope == "global" for r in results)
 
     def test_remove_is_case_insensitive(self, store: MemoryStore) -> None:
         store.add_synonym("Widget", "Gadget")
