@@ -25,6 +25,7 @@ class Memory:
     content_hash: str
     created_at: str
     keywords: str = field(default="")
+    scope: str = field(default="project")
 
     @property
     def snippet(self) -> str:
@@ -182,6 +183,7 @@ class MemoryStore:
         ),
         (2, None),  # sentinel — handled by _run_migration_2()
         (3, None),  # sentinel — handled by _run_migration_3()
+        (4, None),  # sentinel — handled by _run_migration_4()
     ]
 
     def _init_schema(self) -> None:
@@ -201,6 +203,8 @@ class MemoryStore:
                         self._run_migration_2()
                     elif version == 3:
                         self._run_migration_3()
+                    elif version == 4:
+                        self._run_migration_4()
                     else:
                         raise RuntimeError(f"Unsupported migration sentinel: {version}")
                 else:
@@ -279,22 +283,51 @@ class MemoryStore:
         # Re-seed as source='seed' to keep default groups present on all DBs.
         self.db.executescript(_SYNONYMS_SEED_SQL)
 
+    def _run_migration_4(self) -> None:
+        """Idempotent migration: add scope column ('project' | 'global')."""
+        cols = {row[1] for row in self.db.execute("PRAGMA table_info(memories)").fetchall()}
+        if "scope" not in cols:
+            self.db.execute("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'project'")
+        self.db.commit()
+
+    def _row_to_memory(self, row: sqlite3.Row) -> Memory:
+        return Memory(
+            id=row["id"],
+            content=row["content"],
+            source_file=row["source_file"],
+            project=row["project"],
+            section=row["section"],
+            content_hash=row["content_hash"],
+            created_at=row["created_at"],
+            keywords=row["keywords"],
+            scope=row["scope"],
+        )
+
     def add(
         self,
         content: str,
         source_file: str,
         project: str,
         section: str = "",
+        scope: str = "project",
     ) -> int | None:
         """Add a memory. Returns id if new, None if duplicate."""
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("content must be a non-empty string")
+        project = project.strip() if project else ""
+        if not project:
+            raise ValueError("project cannot be empty")
+        section = (section or "").strip()
+        if scope not in ("project", "global"):
+            scope = "project"
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         keywords = self._expand_keywords(content)
         try:
             cursor = self.db.execute(
                 """INSERT INTO memories
-                   (content, source_file, project, section, content_hash, keywords)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (content, source_file, project, section, content_hash, keywords),
+                   (content, source_file, project, section, content_hash, keywords, scope)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (content, source_file, project, section, content_hash, keywords, scope),
             )
             self.db.commit()
             return cursor.lastrowid
@@ -307,6 +340,7 @@ class MemoryStore:
         source_file: str,
         project: str,
         section: str = "",
+        scope: str = "project",
     ) -> int | None:
         """Add or update a memory. Matches on (project, section, source_file).
 
@@ -315,6 +349,9 @@ class MemoryStore:
         - Different content → updates in place, returns existing id
         If no match → inserts new, returns new id
         """
+        if content is None:
+            raise ValueError("content cannot be None")
+        section = (section or "").strip()
         row = self.db.execute(
             """SELECT id, content FROM memories
                WHERE project = ? AND section = ? AND source_file = ?""",
@@ -339,7 +376,7 @@ class MemoryStore:
                 # New content_hash already exists for this project — treat as no-op
                 return None
 
-        return self.add(content, source_file, project, section)
+        return self.add(content, source_file, project, section, scope)
 
     def search(
         self,
@@ -357,6 +394,9 @@ class MemoryStore:
         - or_mode=True uses OR logic (any term can match) — useful for fuzzy/prompt searches
         - Only searches content/project/section columns — keywords column excluded
         """
+        if not isinstance(query, str):
+            return []
+        limit = max(0, limit)
         fts_query = self._build_fts_query(query, or_mode=or_mode)
         if not fts_query:
             return []
@@ -378,30 +418,14 @@ class MemoryStore:
         params.append(limit)
 
         rows = self.db.execute(sql, params).fetchall()
-
-        return [
-            SearchResult(
-                memory=Memory(
-                    id=row["id"],
-                    content=row["content"],
-                    source_file=row["source_file"],
-                    project=row["project"],
-                    section=row["section"],
-                    content_hash=row["content_hash"],
-                    created_at=row["created_at"],
-                    keywords=row["keywords"],
-                ),
-                rank=row["rank"],
-                highlight=row["hl"],
-            )
-            for row in rows
-        ]
+        return self._rows_to_results(rows)
 
     def search_expanded(
         self,
         query: str,
         limit: int = 10,
         project: str | None = None,
+        scope: str | None = None,
     ) -> list[SearchResult]:
         """AND-of-ORs FTS search with synonym expansion and compound bigram handling.
 
@@ -420,6 +444,8 @@ class MemoryStore:
         results up to limit. This handles vocabulary gaps where the agent uses
         different words than those in the stored memory.
         """
+        if not isinstance(query, str):
+            return []
         raw_tokens = re.findall(r"[a-z0-9]+", query.lower())
         corpus_size = self.db.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
         words, _ = partition_query(raw_tokens, self.db, corpus_size)
@@ -446,7 +472,7 @@ class MemoryStore:
         and_parts = [_build_or_group(i, w) for i, w in enumerate(words)]
         fts_query = " AND ".join(and_parts)
 
-        rows = self._execute_fts(fts_query, project=project, limit=limit)
+        rows = self._execute_fts(fts_query, project=project, limit=limit, scope=scope)
 
         # Progressive fallback: when AND returns nothing, search per token and
         # merge unique results. Only fires for multi-token queries.
@@ -455,7 +481,8 @@ class MemoryStore:
             fallback_rows = []
             for i, word in enumerate(words):
                 token_query = _build_or_group(i, word)
-                for row in self._execute_fts(token_query, project=project, limit=limit):
+                fts_rows = self._execute_fts(token_query, project=project, limit=limit, scope=scope)
+                for row in fts_rows:
                     if row["id"] not in seen_ids:
                         seen_ids.add(row["id"])
                         fallback_rows.append(row)
@@ -471,8 +498,10 @@ class MemoryStore:
         *,
         project: str | None,
         limit: int,
+        scope: str | None = None,
     ) -> list[sqlite3.Row]:
         """Execute a raw FTS5 MATCH query and return raw DB rows."""
+        limit = max(0, limit)
         sql = """SELECT m.*, rank, highlight(memories_fts, 0, '>>>', '<<<') as hl
                  FROM memories_fts fts
                  JOIN memories m ON m.id = fts.rowid
@@ -481,6 +510,9 @@ class MemoryStore:
         if project:
             sql += " AND m.project = ?"
             params.append(project)
+        if scope:
+            sql += " AND m.scope = ?"
+            params.append(scope)
         sql += " ORDER BY rank LIMIT ?"
         params.append(limit)
         return self.db.execute(sql, params).fetchall()
@@ -488,20 +520,7 @@ class MemoryStore:
     def _rows_to_results(self, rows: list[sqlite3.Row]) -> list[SearchResult]:
         """Convert raw FTS DB rows to SearchResult objects."""
         return [
-            SearchResult(
-                memory=Memory(
-                    id=row["id"],
-                    content=row["content"],
-                    source_file=row["source_file"],
-                    project=row["project"],
-                    section=row["section"],
-                    content_hash=row["content_hash"],
-                    created_at=row["created_at"],
-                    keywords=row["keywords"],
-                ),
-                rank=row["rank"],
-                highlight=row["hl"],
-            )
+            SearchResult(memory=self._row_to_memory(row), rank=row["rank"], highlight=row["hl"])
             for row in rows
         ]
 
@@ -510,23 +529,33 @@ class MemoryStore:
         """Quote terms with hyphens or underscores for FTS5 safety."""
         return f'"{w}"' if ("-" in w or "_" in w) else w
 
+    # FTS5 operator keywords — strip from user queries to prevent query injection.
+    # These would be interpreted as operators by SQLite, not as search terms.
+    _FTS5_OPERATORS: frozenset[str] = frozenset({"and", "or", "not", "near"})
+
     @staticmethod
     def _build_fts_query(query: str, *, or_mode: bool = False) -> str:
-        """Build FTS5 query string. Default to AND logic, preserve quoted phrases."""
-        # Extract quoted phrases first
-        phrases = re.findall(r'"([^"]+)"', query)
+        """Build FTS5 query string. Default to AND logic, preserve quoted phrases.
+
+        Strips all non-word, non-hyphen characters from individual tokens to
+        prevent FTS5 syntax errors (e.g. $TOKEN, user@email.com) and drops
+        FTS5 operator keywords (AND/OR/NOT/NEAR) to prevent query injection.
+        """
+        # Extract quoted phrases first; drop blank/whitespace-only phrases
+        phrases = [p for p in re.findall(r'"([^"]+)"', query) if p.strip()]
         remaining = re.sub(r'"[^"]*"', "", query).strip()
 
         parts = [f'"{p}"' for p in phrases]
         if remaining:
-            words = remaining.split()
-            # Quote hyphenated or underscored words — FTS5 interprets "-" as column
-            # filter and "_" as token separator (unicode61 tokenizer), both cause
-            # incorrect query expansion or wrong token splitting.
-            parts.extend(MemoryStore._quote_fts_term(w) for w in words)
+            for raw_word in remaining.split():
+                # Keep only word chars and hyphens — strips $, @, #, ., etc.
+                cleaned = re.sub(r"[^\w-]", "", raw_word)
+                # Drop FTS5 operator keywords and empty strings
+                if cleaned and cleaned.lower() not in MemoryStore._FTS5_OPERATORS:
+                    parts.append(MemoryStore._quote_fts_term(cleaned))
 
         if not parts:
-            return query
+            return ""
 
         joiner = " OR " if or_mode else " AND "
         return joiner.join(parts)
@@ -566,6 +595,8 @@ class MemoryStore:
 
     def add_synonym(self, canonical: str, term: str, source: str = "user") -> None:
         """Add a synonym pair and invalidate the cache."""
+        if canonical is None or term is None:
+            raise ValueError("canonical and term cannot be None")
         self.db.execute(
             "INSERT OR IGNORE INTO synonyms (canonical, term, source) VALUES (?, ?, ?)",
             (canonical.lower(), term.lower(), source.lower()),
@@ -575,6 +606,8 @@ class MemoryStore:
 
     def remove_synonym(self, canonical: str, term: str) -> bool:
         """Remove a synonym pair. Returns True if a row was deleted."""
+        if canonical is None or term is None:
+            return False
         cursor = self.db.execute(
             "DELETE FROM synonyms WHERE canonical = ? AND term = ?",
             (canonical.lower(), term.lower()),
@@ -692,19 +725,7 @@ class MemoryStore:
     def get_all_for_backfill(self) -> list[Memory]:
         """Return all memories where keywords column is empty."""
         rows = self.db.execute("SELECT * FROM memories WHERE keywords = '' ORDER BY id").fetchall()
-        return [
-            Memory(
-                id=row["id"],
-                content=row["content"],
-                source_file=row["source_file"],
-                project=row["project"],
-                section=row["section"],
-                content_hash=row["content_hash"],
-                created_at=row["created_at"],
-                keywords=row["keywords"],
-            )
-            for row in rows
-        ]
+        return [self._row_to_memory(row) for row in rows]
 
     def backfill_keywords(self) -> int:
         """Expand keywords for all memories with empty keywords column. Returns count updated."""
@@ -724,26 +745,16 @@ class MemoryStore:
 
     def get_by_project(self, project: str, limit: int = 50) -> list[Memory]:
         """Get all memories for a project, ordered by most recent."""
+        limit = max(0, limit)
         rows = self.db.execute(
             "SELECT * FROM memories WHERE project = ? ORDER BY created_at DESC LIMIT ?",
             (project, limit),
         ).fetchall()
-        return [
-            Memory(
-                id=row["id"],
-                content=row["content"],
-                source_file=row["source_file"],
-                project=row["project"],
-                section=row["section"],
-                content_hash=row["content_hash"],
-                created_at=row["created_at"],
-                keywords=row["keywords"],
-            )
-            for row in rows
-        ]
+        return [self._row_to_memory(row) for row in rows]
 
     def get_shared_sections(self, project: str, limit: int = 20) -> list[Memory]:
         """Get memories from other projects that share section names with this project."""
+        limit = max(0, limit)
         rows = self.db.execute(
             """SELECT m.* FROM memories m
                WHERE m.project != ?
@@ -755,19 +766,7 @@ class MemoryStore:
                LIMIT ?""",
             (project, project, limit),
         ).fetchall()
-        return [
-            Memory(
-                id=row["id"],
-                content=row["content"],
-                source_file=row["source_file"],
-                project=row["project"],
-                section=row["section"],
-                content_hash=row["content_hash"],
-                created_at=row["created_at"],
-                keywords=row["keywords"],
-            )
-            for row in rows
-        ]
+        return [self._row_to_memory(row) for row in rows]
 
     def update(
         self,
@@ -775,22 +774,32 @@ class MemoryStore:
         content: str,
         section: str | None = None,
         project: str | None = None,
+        scope: str | None = None,
     ) -> bool:
         """Update a memory in place. Returns True if updated."""
+        if not isinstance(content, str) or not content.strip():
+            return False
+        if scope is not None and scope not in ("project", "global"):
+            return False
+
         mem = self.get(memory_id)
         if not mem:
             return False
 
-        new_section = section if section is not None else mem.section
-        new_project = project if project is not None else mem.project
+        # Normalize: strip whitespace; treat empty string as "keep existing" for project,
+        # strip for section (empty section = root-level, which is valid).
+        normalized_project = project.strip() if project is not None else None
+        new_project = normalized_project if normalized_project else mem.project
+        new_section = section.strip() if section is not None else mem.section
+        new_scope = scope if scope is not None else mem.scope
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         keywords = self._expand_keywords(content)
 
         self.db.execute(
             """UPDATE memories
-               SET content = ?, section = ?, project = ?, content_hash = ?, keywords = ?
+               SET content = ?, section = ?, project = ?, content_hash = ?, keywords = ?, scope = ?
                WHERE id = ?""",
-            (content, new_section, new_project, content_hash, keywords, memory_id),
+            (content, new_section, new_project, content_hash, keywords, new_scope, memory_id),
         )
         self.db.commit()
         return True
@@ -812,16 +821,7 @@ class MemoryStore:
         row = self.db.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
         if not row:
             return None
-        return Memory(
-            id=row["id"],
-            content=row["content"],
-            source_file=row["source_file"],
-            project=row["project"],
-            section=row["section"],
-            content_hash=row["content_hash"],
-            created_at=row["created_at"],
-            keywords=row["keywords"],
-        )
+        return self._row_to_memory(row)
 
     def list_projects(self) -> list[str]:
         """Return all distinct project names."""
@@ -838,6 +838,72 @@ class MemoryStore:
     def count(self) -> int:
         """Total memory count."""
         return self.db.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+
+    def get_global_memories(self, query: str | None = None, limit: int = 20) -> list[Memory]:
+        """Return globally scoped memories, optionally ranked by FTS relevance.
+
+        Deduplicates by content_hash so auto-promoted patterns that were saved
+        in multiple projects appear only once. Uses synonym-expanded search when
+        a query is provided for consistent recall behaviour with mem_recall.
+        """
+        limit = max(0, limit)
+        if query:
+            results = self.search_expanded(query, limit=limit, scope="global")
+            seen_hashes: set[str] = set()
+            deduped: list[Memory] = []
+            for r in results:
+                if r.memory.content_hash not in seen_hashes:
+                    seen_hashes.add(r.memory.content_hash)
+                    deduped.append(r.memory)
+            return deduped
+        rows = self.db.execute(
+            """SELECT * FROM memories
+               WHERE id IN (
+                   SELECT MIN(id) FROM memories WHERE scope = 'global' GROUP BY content_hash
+               )
+               ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_memory(row) for row in rows]
+
+    def auto_promote_patterns(self, min_projects: int = 2) -> int:
+        """Promote mem_save memories saved identically in 2+ projects to global scope.
+
+        Only promotes source_file='mcp:mem_save' rows — ingested doc "duplicates"
+        across projects are path-encoding artifacts, not genuine patterns.
+        Returns the count of memories promoted.
+        """
+        min_projects = max(1, min_projects)
+        rows = self.db.execute(
+            """SELECT content_hash
+               FROM memories
+               WHERE source_file = 'mcp:mem_save' AND scope = 'project'
+               GROUP BY content_hash
+               HAVING COUNT(DISTINCT project) >= ?""",
+            (min_projects,),
+        ).fetchall()
+
+        if not rows:
+            return 0
+
+        hashes = [row["content_hash"] for row in rows]
+        placeholders = ",".join("?" * len(hashes))
+        cursor = self.db.execute(
+            f"UPDATE memories SET scope = 'global'"
+            f" WHERE content_hash IN ({placeholders}) AND source_file = 'mcp:mem_save'",
+            hashes,
+        )
+        if cursor.rowcount:
+            self.db.commit()
+        return cursor.rowcount
+
+    def set_scope(self, memory_id: int, scope: str) -> bool:
+        """Explicitly set the scope of a memory. Returns True if updated."""
+        if scope not in ("project", "global"):
+            return False
+        cursor = self.db.execute("UPDATE memories SET scope = ? WHERE id = ?", (scope, memory_id))
+        self.db.commit()
+        return cursor.rowcount > 0
 
     def close(self) -> None:
         # Checkpoint WAL to keep the file small when many processes share the DB

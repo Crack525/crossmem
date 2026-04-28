@@ -6,6 +6,34 @@ from pathlib import Path
 
 from crossmem.store import MemoryStore
 
+# Path segments that should never be used as a project name on their own.
+# These are common container/workspace directory names that Claude's path
+# encoding can make appear as the "last meaningful segment".
+_WORKSPACE_DIRS: frozenset[str] = frozenset(
+    {
+        "documents",
+        "personal",
+        "workspace",
+        "work",
+        "code",
+        "projects",
+        "src",
+        "dev",
+        "repos",
+        "desktop",
+        "downloads",
+        "library",
+        "applications",
+        "local",
+        "users",
+        "home",
+    }
+)
+
+# Max chars per stored memory chunk. Sections exceeding this are split at
+# paragraph boundaries so FTS5 ranking stays accurate and recalls stay focused.
+_MAX_SECTION_CHARS = 800
+
 # Project doc files to scan during `crossmem init`
 PROJECT_DOC_NAMES = {
     "README.md",
@@ -22,53 +50,155 @@ PROJECT_DOC_DIRS = [".", "docs"]
 def extract_project_name(path: Path) -> str:
     """Extract project name from Claude Code's path-encoded directory.
 
-    Uses the directory immediately before /memory/ as the project identifier,
-    then decodes Claude Code's path encoding (hyphens replace path separators).
-    Takes the last 1-2 meaningful segments as the project name.
+    Claude encodes working directory paths as hyphen-separated segments:
+    ~/.claude/projects/-Users-foo-Documents-PERSONAL-myproject/memory/MEMORY.md → myproject
 
-    ~/.claude/projects/-Users-foo-Documents-myproject/memory/MEMORY.md → myproject
-    ~/.claude/projects/-Users-foo-work-backend-api/memory/MEMORY.md → backend-api
+    Strategy:
+    1. Find the encoded directory (parent of /memory/).
+    2. Strip the home-directory prefix (reconstructed from Path.home()).
+    3. Walk segments from the END, skipping workspace noise words.
+    4. Return the last 1-2 meaningful segments.
+
+    Examples:
+    -Users-foo-Documents-PERSONAL-tokenxray  → tokenxray
+    -Users-foo-work-backend-api              → backend-api
+    -Users-foo-DS-WORKSPACE-my-project       → my-project
     """
     parts = path.parts
+    encoded = None
     for i, part in enumerate(parts):
         if part == "memory" and i > 0:
             encoded = parts[i - 1]
-            # Split on the path-encoding pattern (leading hyphen + segments)
-            segments = [s for s in encoded.split("-") if s]
-            if not segments:
-                return encoded
-            # Take last 1-2 segments as project name (most specific)
-            # Skip if last segment looks like a hash or is too short
-            meaningful = segments[-2:] if len(segments) >= 2 else segments[-1:]
-            return "-".join(meaningful)
-    return path.parent.name
+            break
+
+    if not encoded:
+        return path.parent.name
+
+    # Split on hyphens; the encoded path starts with a leading hyphen so first segment is "".
+    raw_segments = [s for s in encoded.split("-") if s]
+
+    # Build home prefix segments from Path.home() so we can strip them.
+    # Claude encodes dots as hyphens (e.g. "john.doe" → "john-doe"),
+    # so split each home part on "." to match the encoded form.
+    home_segments: list[str] = []
+    for s in Path.home().parts:
+        if s not in ("/", ""):
+            home_segments.extend(part.lower() for part in s.split(".") if part)
+
+    # Strip matching home-prefix segments (case-insensitive).
+    remaining = [s.lower() for s in raw_segments]
+    prefix_len = 0
+    for home_seg in home_segments:
+        if prefix_len < len(remaining) and remaining[prefix_len] == home_seg:
+            prefix_len += 1
+
+    remaining = [s for s in raw_segments[prefix_len:] if s]  # keep original case
+
+    if not remaining:
+        return raw_segments[-1] if raw_segments else path.parent.name
+
+    # Walk from END, collect non-workspace segments until we have 1-2 meaningful ones.
+    meaningful: list[str] = []
+    for seg in reversed(remaining):
+        if seg.lower() not in _WORKSPACE_DIRS:
+            meaningful.insert(0, seg)
+            if len(meaningful) == 2:
+                break
+        elif meaningful:
+            # Stop once we've started collecting and hit a workspace dir.
+            break
+
+    if not meaningful:
+        # All remaining segments are workspace dirs — fall back to last segment.
+        meaningful = [remaining[-1]]
+
+    # Single short abbreviation (≤ 2 chars) — append the next segment for context.
+    if len(meaningful) == 1 and len(meaningful[0]) <= 2:
+        try:
+            idx = remaining.index(meaningful[0])
+            if idx + 1 < len(remaining):
+                meaningful.append(remaining[idx + 1])
+        except ValueError:
+            pass
+
+    return "-".join(meaningful).lower()
+
+
+def _strip_code_blocks(text: str) -> str:
+    """Remove fenced code blocks — they inflate chunk size but rarely help text recall."""
+    return re.sub(r"```[^`]*```", "", text, flags=re.DOTALL).strip()
+
+
+def _chunk_section(heading: str, text: str) -> list[tuple[str, str]]:
+    """Return (heading, chunk) pairs, splitting at paragraph boundaries when over limit.
+
+    Code blocks are stripped first: they dominate char count but add little
+    FTS5 signal since prose around them carries the semantic meaning.
+    """
+    text = _strip_code_blocks(text)
+    if not text or len(text) < 20:
+        return []
+    if len(text) <= _MAX_SECTION_CHARS:
+        return [(heading, text)]
+
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip() and len(p.strip()) > 10]
+    chunks: list[tuple[str, str]] = []
+    current: list[str] = []
+    current_len = 0
+
+    for para in paragraphs:
+        if current and current_len + len(para) > _MAX_SECTION_CHARS:
+            chunk_text = "\n\n".join(current)
+            if len(chunk_text) > 20:
+                chunks.append((heading, chunk_text))
+            current = [para]
+            current_len = len(para)
+        else:
+            current.append(para)
+            current_len += len(para) + 2
+
+    if current:
+        chunk_text = "\n\n".join(current)
+        if len(chunk_text) > 20:
+            chunks.append((heading, chunk_text))
+
+    # Fallback: no paragraph breaks found — hard-truncate rather than drop
+    return chunks if chunks else [(heading, text[:_MAX_SECTION_CHARS])]
 
 
 def parse_markdown_sections(content: str) -> list[tuple[str, str]]:
     """Split markdown into (section_heading, section_content) pairs.
 
-    Each section becomes a separate memory for granular search.
+    Each section becomes a separate memory for granular search. Sections
+    exceeding _MAX_SECTION_CHARS are split at paragraph boundaries and code
+    blocks are stripped to keep chunks focused and FTS5 ranking accurate.
     """
     lines = content.split("\n")
     sections: list[tuple[str, str]] = []
     current_heading = ""
     current_lines: list[str] = []
 
+    def _emit(heading: str, text: str) -> None:
+        if not text or len(text) <= 20:
+            return
+        chunks = _chunk_section(heading, text)
+        if len(chunks) > 1:
+            for i, (h, chunk) in enumerate(chunks, 1):
+                sections.append((f"{h} [{i}]", chunk))
+        else:
+            sections.extend(chunks)
+
     for line in lines:
         if re.match(r"^#{1,3}\s+", line):
             if current_lines:
-                text = "\n".join(current_lines).strip()
-                if text and len(text) > 20:
-                    sections.append((current_heading, text))
+                _emit(current_heading, "\n".join(current_lines).strip())
             current_heading = re.sub(r"^#{1,3}\s+", "", line).strip()
             current_lines = []
         else:
             current_lines.append(line)
 
     if current_lines:
-        text = "\n".join(current_lines).strip()
-        if text and len(text) > 20:
-            sections.append((current_heading, text))
+        _emit(current_heading, "\n".join(current_lines).strip())
 
     return sections
 
@@ -209,7 +339,7 @@ def derive_project_name(project_dir: Path) -> str:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
-    return project_dir.name.lower().replace("_", "-")
+    return project_dir.name.lower().replace("_", "-") or "unknown"
 
 
 def find_project_docs(project_dir: Path) -> list[Path]:
@@ -241,7 +371,7 @@ def ingest_project_docs(
 
     Re-runnable: uses content-hash dedup so unchanged content is skipped.
     """
-    if project is None:
+    if not project or not str(project).strip():
         project = derive_project_name(project_dir)
 
     docs = find_project_docs(project_dir)
@@ -306,6 +436,15 @@ def ingest_claude_memory(store: MemoryStore, base_path: Path | None = None) -> i
     for md_file in sorted(base_path.rglob("*.md")):
         if "memory" not in str(md_file):
             continue
+
+        # MEMORY.md is the crossmem pointer index when sibling .md files exist.
+        # Ingesting it would store pointer lines ("- [Title](file.md) — ...") as
+        # memories. Skip it when the directory has other .md files whose content
+        # is already ingested by this same loop.
+        if md_file.name == "MEMORY.md":
+            siblings = [f for f in md_file.parent.glob("*.md") if f.name != "MEMORY.md"]
+            if siblings:
+                continue
 
         project = extract_project_name(md_file)
         content = md_file.read_text(encoding="utf-8", errors="replace")
