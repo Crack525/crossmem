@@ -572,6 +572,46 @@ class MemoryStore:
         )
 
     _VALID_TYPES: frozenset[str] = frozenset({"user", "feedback", "project", "reference"})
+    _COSINE_DEDUP_THRESHOLD: float = 0.05  # distance < 0.05 ≈ similarity > 0.95
+
+    def _find_near_duplicate(
+        self, content: str, scope: str, project: str
+    ) -> int | None:
+        """Return ID of a near-identical existing memory, or None.
+
+        Uses cosine distance < _COSINE_DEDUP_THRESHOLD. Only runs when
+        embeddings are available; silently returns None otherwise.
+        For global scope: matches any global memory.
+        For project scope: matches within the same project only.
+        """
+        if not self._vec_available:
+            return None
+        try:
+            from crossmem import embeddings
+
+            vec = embeddings.embed(content)
+            if vec is None:
+                return None
+            rows = self.db.execute(
+                "SELECT rowid, distance FROM vec_memories WHERE embedding MATCH ? AND k = 5",
+                (vec,),
+            ).fetchall()
+            for row in rows:
+                if row["distance"] >= self._COSINE_DEDUP_THRESHOLD:
+                    break
+                mem_row = self.db.execute(
+                    "SELECT id, scope, project FROM memories WHERE id = ?",
+                    (row["rowid"],),
+                ).fetchone()
+                if not mem_row:
+                    continue
+                if scope == "global" and mem_row["scope"] == "global":
+                    return int(mem_row["id"])
+                if scope == "project" and mem_row["project"] == project:
+                    return int(mem_row["id"])
+        except Exception:
+            pass
+        return None
 
     def add(
         self,
@@ -598,6 +638,18 @@ class MemoryStore:
             type = "project"
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         keywords = self._expand_keywords(content)
+        # Exact hash dedup for global scope: same content shouldn't exist twice globally
+        if scope == "global":
+            existing = self.db.execute(
+                "SELECT id FROM memories WHERE content_hash = ? AND scope = 'global'",
+                (content_hash,),
+            ).fetchone()
+            if existing:
+                return existing["id"]
+        # Cosine near-dup dedup: avoid near-identical memories in same scope context
+        near_dup_id = self._find_near_duplicate(content, scope, project)
+        if near_dup_id is not None:
+            return near_dup_id
         try:
             cursor = self.db.execute(
                 """INSERT INTO memories

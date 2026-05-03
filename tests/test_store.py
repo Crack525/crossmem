@@ -36,6 +36,24 @@ class TestAdd:
         store.add("two", "f.md", "p")
         assert store.count() == 2
 
+    def test_global_scope_hash_dedup_across_projects(self, store: MemoryStore) -> None:
+        id1 = store.add("shared global rule", "f.md", "proj-a", scope="global")
+        id2 = store.add("shared global rule", "f.md", "proj-b", scope="global")
+        assert id1 is not None
+        # Second add should return existing id (dedup), not create a new entry
+        assert id2 == id1
+        assert store.count() == 1
+
+    def test_project_scope_same_hash_still_allowed_in_different_projects(
+        self, store: MemoryStore
+    ) -> None:
+        id1 = store.add("shared rule", "f.md", "proj-a", scope="project")
+        id2 = store.add("shared rule", "f.md", "proj-b", scope="project")
+        assert id1 is not None
+        assert id2 is not None
+        assert id1 != id2
+        assert store.count() == 2
+
 
 class TestSearch:
     def test_basic_search(self, store: MemoryStore) -> None:
