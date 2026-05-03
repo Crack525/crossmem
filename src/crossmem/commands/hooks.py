@@ -124,7 +124,7 @@ def _build_recall_output(
 
     for mem in tiered:
         section = f" [{mem.section}]" if mem.section else ""
-        prefix = f"- "
+        prefix = "- "
         suffix = section
         remaining = budget - used - len(prefix) - len(suffix) - 1
         if remaining <= 0:
