@@ -28,6 +28,9 @@ HOOK_MATCHER_LEGACY = "crossmem-recall"
 PROMPT_SEARCH_MIN_WORDS = 3
 PROMPT_SEARCH_MAX_RESULTS = 5
 PROMPT_SEARCH_BUDGET = 4000
+# FTS5 BM25 rank is negative; values near 0 are weak matches.
+# Only inject results with rank at or below this threshold.
+PROMPT_SEARCH_MIN_RANK: float = -0.1
 
 HOOK_META_WORDS = {
     "recall",
@@ -507,6 +510,7 @@ def prompt_search() -> None:
                     results.append(r)
                     seen_ids.add(r.memory.id)
 
+        results = [r for r in results if r.rank <= PROMPT_SEARCH_MIN_RANK]
         if not results:
             return
 
