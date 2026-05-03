@@ -93,6 +93,8 @@ gemini                    # Gemini: calls mem_recall via instruction in GEMINI.m
 6. **Freshness tracking** (v1.3.0) — every memory carries a `last_verified` timestamp. `mem_recall` and `mem_search` surface `[verified: YYYY-MM-DD]` or `[unverified]` next to each result so agents can judge trust level at a glance. Use `mem_verify(id)` to stamp a memory as confirmed without changing its content.
 7. **Smart search** (v1.1.0) — a two-layer noise filter separates signal tokens from noise before every FTS query. Layer 1 excludes 168 linguistically fixed closed-class words (prepositions, pronouns, auxiliaries, etc.) in O(1). Layer 2 applies corpus-adaptive IDF via FTS5 — tokens that appear in more than 40% of your documents are treated as project-specific noise. Zero additional dependencies.
 8. **Scope model** (v1.2.0) — memories are either `project`-scoped (visible only within their project) or `global` (surfaced everywhere). Memories saved identically across 2+ projects are automatically promoted to global via `auto_promote_patterns()`.
+9. **WIP scope** (v1.9.0) — `mem_save(..., scope="wip")` marks in-progress context that should surface prominently at the *next* session start, then auto-demotes to project scope so it doesn't clutter every recall. Use it to leave a note for your next session: *"Started auth rewrite, blocked on token refresh logic — resuming here."*
+10. **Relevance scores** (v1.9.0) — query-scoped `mem_recall(query=...)` annotates each result with `[rel: XX%]` so the agent can immediately see match quality. Full-session recall (no query) is unaffected.
 
 ## MCP Server
 
@@ -149,7 +151,7 @@ Add to your tool's MCP config so AI assistants can search, recall, and save memo
 |------|-------------|
 | `mem_recall` | Load project context + cross-project patterns at session start |
 | `mem_search` | Search across all memories (query, project filter, limit) |
-| `mem_save` | Save a discovery during a session (writes a durable `.md` file + DB row) |
+| `mem_save` | Save a discovery during a session (writes a durable `.md` file + DB row). `scope="wip"` for carry-over context that auto-demotes after next recall. |
 | `mem_update` | Update a memory in place (preserves ID, syncs backing file) |
 | `mem_forget` | Delete a memory by ID (removes backing file from disk) |
 | `mem_get` | Get full content of a memory by ID |
