@@ -2,6 +2,14 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.7.3] — 2026-05-03
+
+### Fixed
+
+- **SQLite extension loading**: `enable_load_extension(True)` was missing from `MemoryStore.__init__()`, causing `sqlite_vec.load()` to raise `OperationalError: not authorized` silently. `_vec_available` was always `False` even when `fastembed` and `sqlite-vec` were installed — the v1.7.2 FTS5→embeddings fallback was dormant. Extension now loads correctly.
+
+---
+
 ## [1.7.0] — 2026-05-03
 
 ### Added

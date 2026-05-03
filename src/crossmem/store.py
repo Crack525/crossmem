@@ -124,6 +124,10 @@ class MemoryStore:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(db_path), timeout=10)
         self.db.row_factory = sqlite3.Row
+        try:
+            self.db.enable_load_extension(True)
+        except AttributeError:
+            pass  # Python built without extension support — vec will degrade gracefully
         # WAL allows concurrent readers + one writer; upgrade silently
         try:
             self.db.execute("PRAGMA journal_mode=WAL")
