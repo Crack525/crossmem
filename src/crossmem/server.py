@@ -62,7 +62,7 @@ def _freshness(last_verified: str | None) -> str:
 
 
 # Matches file paths in memory content: e.g. src/foo/bar.py, tests/test_x.py, ~/.claude/...
-_FILE_REF_RE = re.compile(r"(?:src|tests?|~)/[\w./\-]+\.(?:py|md|toml|json|yaml|yml|sh)")
+_FILE_REF_RE = re.compile(r"(?:src|tests?|~)/[\w./\-]+\.(?:py|md|toml|jsonl?|yaml|yml|sh)")
 
 
 def _stale_check(source_file: str | None, content: str, cwd: str | None) -> str | None:

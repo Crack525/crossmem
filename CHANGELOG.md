@@ -2,6 +2,15 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.9.1] — 2026-05-03
+
+### Fixed
+
+- Stale check regex now matches `.jsonl` paths correctly — previously `history.jsonl` was matched as `history.json` (prefix), causing false-positive stale warnings when the `.json` file didn't exist but the `.jsonl` did. Fix: `\.json` → `\.jsonl?` in `_FILE_REF_RE`.
+- 4 new tests for `_stale_check` covering `.jsonl` exists, `.jsonl` missing, `.json` exists, and no-ref content.
+
+---
+
 ## [1.9.0] — 2026-05-03
 
 ### Added

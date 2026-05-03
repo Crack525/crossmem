@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from crossmem.server import (
+    _stale_check,
     mem_demote,
     mem_forget,
     mem_get,
@@ -372,3 +373,33 @@ class TestMemForgetBlastRadius:
         result = mem_forget(memory_id=mid)
         assert "GLOBAL MEMORY DELETED" not in result
         assert "Deleted memory" in result
+
+
+class TestStaleCheck:
+    def test_jsonl_exists_not_flagged_stale(self, tmp_path):
+        # Create only history.jsonl — NOT history.json
+        # Before fix: regex matched "src/data/history.json" (prefix), file missing → false stale
+        # After fix: regex matches "src/data/history.jsonl", file exists → None
+        (tmp_path / "src" / "data").mkdir(parents=True)
+        (tmp_path / "src" / "data" / "history.jsonl").write_text("")
+        content = "Sessions archived to src/data/history.jsonl on each turn."
+        result = _stale_check(None, content, str(tmp_path))
+        assert result is None
+
+    def test_jsonl_missing_is_flagged_stale(self, tmp_path):
+        # .jsonl path referenced but file doesn't exist → stale
+        content = "Sessions archived to src/data/history.jsonl on each turn."
+        result = _stale_check(None, content, str(tmp_path))
+        assert result is not None
+        assert "history.jsonl" in result
+
+    def test_json_exists_not_flagged_stale(self, tmp_path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "config.json").write_text("{}")
+        content = "Config loaded from src/config.json at startup."
+        result = _stale_check(None, content, str(tmp_path))
+        assert result is None
+
+    def test_no_file_refs_in_content_returns_none(self, tmp_path):
+        result = _stale_check(None, "No file references here, just prose.", str(tmp_path))
+        assert result is None
