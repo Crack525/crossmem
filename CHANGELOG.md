@@ -2,6 +2,19 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.4.0] — 2026-05-03
+
+### Added
+
+**Agent UX: relevance gate + stale detection**
+
+Two improvements that make crossmem memories more trustworthy as agent context.
+
+- **`prompt-search` relevance gate** — FTS5 BM25 rank threshold (`PROMPT_SEARCH_MIN_RANK = -0.1`) filters out weak matches before injecting memories into prompt context. With a realistic DB, strong matches score -2 to -5; near-zero scores are noise and now suppressed.
+- **Stale detection in `mem_recall`** — every recalled memory now runs `_stale_check`: if `source_file` no longer exists, or if file paths referenced in the memory content (e.g. `src/foo.py`, `tests/bar.py`) are not found on disk, the memory is labelled `[stale: <reason>]` instead of showing a freshness date. Agents can immediately see which memories have rotted and decide to update or discard them.
+
+---
+
 ## [1.3.0] — 2026-05-03
 
 ### Added
