@@ -2,6 +2,25 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.8.0] — 2026-05-03
+
+### Added
+
+**File-backed memory — single source of truth**
+
+`mem_save` now writes durable `.md` files to `~/.crossmem/memories/<project>/<content_hash8>.md` alongside each DB row. These files are the source of truth: they survive a DB wipe and are re-ingested at startup via `ingest_crossmem_saved()`.
+
+- **`_write_backing_file()`**: writes YAML frontmatter (name, description, type, scope, why, how_to_apply) + body content
+- **`ingest_crossmem_saved()`**: new ingest function in `ingest.py`; reads `~/.crossmem/memories/` on startup, parses frontmatter, upserts rows — same pattern as `ingest_claude_memory` but treats each file as a single memory (no section splitting)
+- **`get_store()` auto-ingest**: now calls `ingest_crossmem_saved(store)` alongside existing ingest calls on every DB open
+- **`mem_forget()` cleanup**: deletes backing file from disk after DB delete when source_file points inside `~/.crossmem/memories/`
+- **`mem_update()` sync**: overwrites backing file with updated content/section/scope after successful DB update
+- **Dedup preserved**: content hash is computed before `store.add()` to derive the backing path; file is only written if add succeeds (no orphans on near-dup rejection)
+
+Eliminates file/DB drift — one place to update, files re-hydrate the DB on a clean install.
+
+---
+
 ## [1.7.3] — 2026-05-03
 
 ### Fixed

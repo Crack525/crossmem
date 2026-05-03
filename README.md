@@ -89,7 +89,7 @@ gemini                    # Gemini: calls mem_recall via instruction in GEMINI.m
 3. **Tiered recall** — returns most relevant context within a token budget:
    curated memories > tool memories > CLAUDE.md > CONTRIBUTING.md > README.md
 4. **Mid-session recall** (Claude Code + VS Code Agent Mode) — every prompt is searched against your memories. Relevant context is injected before the model responds — no manual `mem_recall` needed.
-5. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds.
+5. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds. Each memory is written as a durable `.md` file to `~/.crossmem/memories/<project>/` — the DB is rebuilt from these files on startup, so memories survive a clean install.
 6. **Freshness tracking** (v1.3.0) — every memory carries a `last_verified` timestamp. `mem_recall` and `mem_search` surface `[verified: YYYY-MM-DD]` or `[unverified]` next to each result so agents can judge trust level at a glance. Use `mem_verify(id)` to stamp a memory as confirmed without changing its content.
 7. **Smart search** (v1.1.0) — a two-layer noise filter separates signal tokens from noise before every FTS query. Layer 1 excludes 168 linguistically fixed closed-class words (prepositions, pronouns, auxiliaries, etc.) in O(1). Layer 2 applies corpus-adaptive IDF via FTS5 — tokens that appear in more than 40% of your documents are treated as project-specific noise. Zero additional dependencies.
 8. **Scope model** (v1.2.0) — memories are either `project`-scoped (visible only within their project) or `global` (surfaced everywhere). Memories saved identically across 2+ projects are automatically promoted to global via `auto_promote_patterns()`.
@@ -149,11 +149,14 @@ Add to your tool's MCP config so AI assistants can search, recall, and save memo
 |------|-------------|
 | `mem_recall` | Load project context + cross-project patterns at session start |
 | `mem_search` | Search across all memories (query, project filter, limit) |
-| `mem_save` | Save a discovery during a session |
-| `mem_update` | Update a memory in place (preserves ID) |
-| `mem_forget` | Delete a memory by ID |
+| `mem_save` | Save a discovery during a session (writes a durable `.md` file + DB row) |
+| `mem_update` | Update a memory in place (preserves ID, syncs backing file) |
+| `mem_forget` | Delete a memory by ID (removes backing file from disk) |
 | `mem_get` | Get full content of a memory by ID |
 | `mem_verify` | Mark a memory as verified today (no content change) |
+| `mem_promote` | Promote a project-scoped memory to global scope |
+| `mem_demote` | Demote a global memory back to project scope |
+| `mem_deduplicate` | Scan for near-duplicate memories and remove redundant entries |
 | `mem_init` | Index project documentation files |
 | `mem_ingest` | Refresh the index from native tool memory files |
 
@@ -211,6 +214,7 @@ crossmem setup        # one-time: Claude hook + Copilot injection + Gemini instr
 | GitHub Copilot (macOS) | `~/Library/Application Support/Code/User/globalStorage/github.copilot-chat/memory-tool/memories/*.md` |
 | GitHub Copilot (Linux) | `~/.config/Code/User/globalStorage/github.copilot-chat/memory-tool/memories/*.md` |
 | GitHub Copilot (Windows) | `%APPDATA%\Code\User\globalStorage\github.copilot-chat\memory-tool\memories\*.md` |
+| crossmem (via `mem_save`) | `~/.crossmem/memories/<project>/*.md` |
 
 Ingestion is pluggable — PRs welcome for new tools.
 
