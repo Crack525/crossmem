@@ -184,6 +184,7 @@ class MemoryStore:
         (2, None),  # sentinel — handled by _run_migration_2()
         (3, None),  # sentinel — handled by _run_migration_3()
         (4, None),  # sentinel — handled by _run_migration_4()
+        (5, None),  # sentinel — handled by _run_migration_5()
     ]
 
     def _init_schema(self) -> None:
@@ -205,6 +206,8 @@ class MemoryStore:
                         self._run_migration_3()
                     elif version == 4:
                         self._run_migration_4()
+                    elif version == 5:
+                        self._run_migration_5()
                     else:
                         raise RuntimeError(f"Unsupported migration sentinel: {version}")
                 else:
@@ -284,6 +287,13 @@ class MemoryStore:
         self.db.executescript(_SYNONYMS_SEED_SQL)
 
     def _run_migration_4(self) -> None:
+        """Idempotent migration: add scope column ('project' | 'global')."""
+        cols = {row[1] for row in self.db.execute("PRAGMA table_info(memories)").fetchall()}
+        if "scope" not in cols:
+            self.db.execute("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'project'")
+            self.db.commit()
+
+    def _run_migration_5(self) -> None:
         """Idempotent migration: add last_verified column."""
         cols = {row[1] for row in self.db.execute("PRAGMA table_info(memories)").fetchall()}
         if "last_verified" not in cols:
