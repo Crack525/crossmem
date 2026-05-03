@@ -1,6 +1,6 @@
 [project]
 name = "crossmem"
-version = "1.6.0"
+version = "1.7.0"
 description = "Cross-project memory for AI coding agents"
 readme = "README.md"
 authors = [
@@ -31,6 +31,10 @@ crossmem-server = "crossmem.server:main"
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
+]
+embeddings = [
+    "fastembed>=0.3.0",
+    "sqlite-vec>=0.1.0",
 ]
 
 [build-system]

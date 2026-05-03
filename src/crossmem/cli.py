@@ -2,6 +2,7 @@
 
 import click
 
+from crossmem.commands.config import config
 from crossmem.commands.core import (
     benchmark,
     forget,
@@ -44,3 +45,4 @@ main.add_command(install_instructions)
 main.add_command(install_hook)
 main.add_command(doctor)
 main.add_command(synonyms)
+main.add_command(config)

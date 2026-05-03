@@ -1371,6 +1371,10 @@ class TestPromptSearch:
                 "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-10.0, highlight="")
                 ],
+                "search_auto": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-10.0, highlight="")
+                ],
+                "get_config": lambda self, *a, **kw: "fts5",
                 "close": lambda self: None,
             },
         )()
@@ -1401,6 +1405,10 @@ class TestPromptSearch:
                 "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-2.0, highlight="")
                 ],
+                "search_auto": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-2.0, highlight="")
+                ],
+                "get_config": lambda self, *a, **kw: "fts5",
                 "close": lambda self: None,
             },
         )()
@@ -1431,6 +1439,10 @@ class TestPromptSearch:
                 "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-0.5, highlight="")
                 ],
+                "search_auto": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-0.5, highlight="")
+                ],
+                "get_config": lambda self, *a, **kw: "fts5",
                 "close": lambda self: None,
             },
         )()
@@ -1463,6 +1475,10 @@ class TestPromptSearchVscodeFormat:
                 "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-10.0, highlight="")
                 ],
+                "search_auto": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-10.0, highlight="")
+                ],
+                "get_config": lambda self, *a, **kw: "fts5",
                 "close": lambda self: None,
             },
         )()
@@ -1501,6 +1517,10 @@ class TestPromptSearchVscodeFormat:
                 "search_expanded": lambda self, *a, **kw: [
                     SearchResult(memory=mem, rank=-10.0, highlight="")
                 ],
+                "search_auto": lambda self, *a, **kw: [
+                    SearchResult(memory=mem, rank=-10.0, highlight="")
+                ],
+                "get_config": lambda self, *a, **kw: "fts5",
                 "close": lambda self: None,
             },
         )()

@@ -131,7 +131,9 @@ class MemoryStore:
             pass  # locked by another connection — existing mode is fine
         self.db.execute("PRAGMA busy_timeout=30000")
         self._synonym_cache: dict[str, frozenset[str]] | None = None
+        self._vec_available: bool = False
         self._init_schema()
+        self._try_init_vec()
 
     # -- Schema migrations ------------------------------------------------
     # Each entry is (version, sql).  Versions are applied in order.
@@ -186,6 +188,7 @@ class MemoryStore:
         (3, None),  # sentinel — handled by _run_migration_3()
         (4, None),  # sentinel — handled by _run_migration_4()
         (5, None),  # sentinel — handled by _run_migration_5()
+        (6, None),  # sentinel — handled by _run_migration_6()
     ]
 
     def _init_schema(self) -> None:
@@ -209,6 +212,8 @@ class MemoryStore:
                         self._run_migration_4()
                     elif version == 5:
                         self._run_migration_5()
+                    elif version == 6:
+                        self._run_migration_6()
                     else:
                         raise RuntimeError(f"Unsupported migration sentinel: {version}")
                 else:
@@ -301,6 +306,224 @@ class MemoryStore:
             self.db.execute("ALTER TABLE memories ADD COLUMN last_verified TIMESTAMP NULL")
             self.db.commit()
 
+    def _run_migration_6(self) -> None:
+        """Idempotent migration: add crossmem_config table for user-configurable settings."""
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS crossmem_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+        """)
+
+    # -- Vector (embeddings) backend ---------------------------------------
+
+    def _try_init_vec(self) -> None:
+        """Try to load sqlite-vec and create the vec_memories virtual table.
+
+        Sets self._vec_available = True only if both sqlite-vec and fastembed
+        are installed. Silently degrades to FTS5-only if either is missing.
+        """
+        try:
+            import sqlite_vec
+
+            from crossmem import embeddings as _emb
+
+            if not _emb.is_available():
+                return
+            sqlite_vec.load(self.db)
+            self.db.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories
+                USING vec0(embedding float[384] distance_metric=cosine)
+            """)
+            self.db.commit()
+            self._vec_available = True
+            # Silently backfill a small batch of unembedded memories on startup
+            self._backfill_embeddings_partial(limit=50)
+        except Exception:
+            self._vec_available = False
+
+    def get_config(self, key: str, default: str = "") -> str:
+        """Get a config value. Returns default if key not set."""
+        row = self.db.execute(
+            "SELECT value FROM crossmem_config WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else default
+
+    def set_config(self, key: str, value: str) -> None:
+        """Set a config value."""
+        self.db.execute(
+            "INSERT OR REPLACE INTO crossmem_config (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        self.db.commit()
+
+    def embed_memory(self, memory_id: int) -> bool:
+        """Compute and store the embedding for a memory. Returns True if stored."""
+        if not self._vec_available:
+            return False
+        mem = self.get(memory_id)
+        if not mem:
+            return False
+        from crossmem import embeddings
+
+        vec = embeddings.embed(mem.content)
+        if vec is None:
+            return False
+        self.db.execute(
+            "INSERT OR REPLACE INTO vec_memories(rowid, embedding) VALUES (?, ?)",
+            (memory_id, vec),
+        )
+        self.db.commit()
+        return True
+
+    def _backfill_embeddings_partial(self, limit: int = 50) -> int:
+        """Embed up to `limit` memories that have no stored vector. Returns count embedded."""
+        if not self._vec_available:
+            return 0
+        rows = self.db.execute(
+            """SELECT m.id FROM memories m
+               WHERE NOT EXISTS (SELECT 1 FROM vec_memories v WHERE v.rowid = m.id)
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if self.embed_memory(row["id"]):
+                count += 1
+        return count
+
+    def backfill_embeddings(self) -> int:
+        """Embed all memories that have no stored vector. Returns count embedded."""
+        if not self._vec_available:
+            return 0
+        rows = self.db.execute(
+            """SELECT m.id FROM memories m
+               WHERE NOT EXISTS (SELECT 1 FROM vec_memories v WHERE v.rowid = m.id)"""
+        ).fetchall()
+        count = 0
+        for row in rows:
+            if self.embed_memory(row["id"]):
+                count += 1
+        return count
+
+    def search_vector(
+        self,
+        query: str,
+        limit: int = 10,
+        project: str | None = None,
+        scope: str | None = None,
+    ) -> list[SearchResult]:
+        """ANN search via sqlite-vec cosine distance. Falls back to FTS5 if unavailable."""
+        if not self._vec_available:
+            return self.search_expanded(query, limit=limit, project=project, scope=scope)
+
+        from crossmem import embeddings
+
+        qvec = embeddings.embed(query)
+        if qvec is None:
+            return self.search_expanded(query, limit=limit, project=project, scope=scope)
+
+        # Fetch extra candidates to allow filtering by project/scope post-KNN
+        fetch_limit = limit * 4 if (project or scope) else limit
+        try:
+            knn_rows = self.db.execute(
+                "SELECT rowid, distance FROM vec_memories WHERE embedding MATCH ? AND k = ?",
+                (qvec, fetch_limit),
+            ).fetchall()
+        except Exception:
+            return self.search_expanded(query, limit=limit, project=project, scope=scope)
+
+        if not knn_rows:
+            return []
+
+        rowids = [r["rowid"] for r in knn_rows]
+        dist_map = {r["rowid"]: r["distance"] for r in knn_rows}
+
+        placeholders = ",".join("?" * len(rowids))
+        sql = f"SELECT * FROM memories WHERE id IN ({placeholders})"
+        params: list = list(rowids)
+        if project:
+            sql += " AND project = ?"
+            params.append(project)
+        if scope:
+            sql += " AND scope = ?"
+            params.append(scope)
+
+        mem_rows = self.db.execute(sql, params).fetchall()
+        results = []
+        for row in mem_rows:
+            dist = dist_map.get(row["id"], 2.0)
+            # cosine_distance ∈ [0, 2]; rank = dist - 1 ∈ [-1, 1] (lower = better)
+            rank = dist - 1.0
+            mem = self._row_to_memory(row)
+            results.append(SearchResult(memory=mem, rank=rank, highlight=mem.snippet))
+
+        results.sort(key=lambda r: r.rank)
+        return results[:limit]
+
+    def search_hybrid(
+        self,
+        query: str,
+        limit: int = 10,
+        project: str | None = None,
+        scope: str | None = None,
+    ) -> list[SearchResult]:
+        """Weighted combination of FTS5 and vector search (0.3 FTS + 0.7 vec).
+
+        Falls back to vector-only if FTS returns no results, and to FTS5-only
+        if the vector backend is unavailable.
+        """
+        if not self._vec_available:
+            return self.search_expanded(query, limit=limit, project=project, scope=scope)
+
+        fetch = limit * 2
+        fts_results = self.search_expanded(query, limit=fetch, project=project, scope=scope)
+        vec_results = self.search_vector(query, limit=fetch, project=project, scope=scope)
+
+        # Build id → rank maps for both backends
+        fts_map = {r.memory.id: r.rank for r in fts_results}
+        vec_map = {r.memory.id: r.rank for r in vec_results}
+        all_ids = set(fts_map) | set(vec_map)
+        mem_by_id = {r.memory.id: r.memory for r in fts_results + vec_results}
+
+        combined = []
+        for mid in all_ids:
+            fts_rank = fts_map.get(mid)
+            vec_rank = vec_map.get(mid)
+
+            # Normalize to similarity [0, 1] where 1 = best
+            fts_sim = 1.0 / (1.0 + abs(fts_rank)) if fts_rank is not None else 0.0
+            # vec rank ∈ [-1, 1]; cosine_sim = -vec_rank (clamped to [0,1])
+            vec_sim = max(0.0, -vec_rank) if vec_rank is not None else 0.0
+
+            hybrid_sim = 0.3 * fts_sim + 0.7 * vec_sim
+            hybrid_rank = -hybrid_sim  # convert back to "lower = better"
+
+            mem = mem_by_id[mid]
+            hl = next(
+                (r.highlight for r in fts_results if r.memory.id == mid),
+                mem.snippet,
+            )
+            combined.append(SearchResult(memory=mem, rank=hybrid_rank, highlight=hl))
+
+        combined.sort(key=lambda r: r.rank)
+        return combined[:limit]
+
+    def search_auto(
+        self,
+        query: str,
+        limit: int = 10,
+        project: str | None = None,
+        scope: str | None = None,
+    ) -> list[SearchResult]:
+        """Dispatch to the configured search backend (fts5 | embeddings | hybrid)."""
+        mode = self.get_config("search-mode", "fts5")
+        if mode == "embeddings":
+            return self.search_vector(query, limit=limit, project=project, scope=scope)
+        if mode == "hybrid":
+            return self.search_hybrid(query, limit=limit, project=project, scope=scope)
+        return self.search_expanded(query, limit=limit, project=project, scope=scope)
+
     def _row_to_memory(self, row: sqlite3.Row) -> Memory:
         return Memory(
             id=row["id"],
@@ -343,7 +566,10 @@ class MemoryStore:
                 (content, source_file, project, section, content_hash, keywords, scope),
             )
             self.db.commit()
-            return cursor.lastrowid
+            new_id = cursor.lastrowid
+            if new_id is not None:
+                self.embed_memory(new_id)
+            return new_id
         except sqlite3.IntegrityError:
             return None
 
@@ -385,6 +611,7 @@ class MemoryStore:
                     (content, content_hash, keywords, row["id"]),
                 )
                 self.db.commit()
+                self.embed_memory(row["id"])
                 return row["id"]
             except sqlite3.IntegrityError:
                 # New content_hash already exists for this project — treat as no-op
@@ -817,6 +1044,7 @@ class MemoryStore:
             (content, new_section, new_project, content_hash, keywords, new_scope, memory_id),
         )
         self.db.commit()
+        self.embed_memory(memory_id)
         return True
 
     def verify(self, memory_id: int) -> bool:
@@ -831,6 +1059,8 @@ class MemoryStore:
     def delete(self, memory_id: int) -> bool:
         """Delete a memory by ID. Returns True if deleted."""
         cursor = self.db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        if cursor.rowcount > 0 and self._vec_available:
+            self.db.execute("DELETE FROM vec_memories WHERE rowid = ?", (memory_id,))
         self.db.commit()
         return cursor.rowcount > 0
 

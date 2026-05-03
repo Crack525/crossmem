@@ -31,6 +31,8 @@ PROMPT_SEARCH_BUDGET = 4000
 # FTS5 BM25 rank is negative; values near 0 are weak matches.
 # Only inject results with rank at or below this threshold.
 PROMPT_SEARCH_MIN_RANK: float = -0.1
+# Vector/hybrid rank = cosine_distance - 1 ∈ [-1, 1]; -0.5 ≈ cosine_sim ≥ 0.5
+PROMPT_SEARCH_MIN_RANK_VECTOR: float = -0.5
 _INJECTION_LOG = Path.home() / ".tokenxray" / "memory_injections.jsonl"
 
 HOOK_META_WORDS = {
@@ -547,22 +549,29 @@ def prompt_search() -> None:
         except Exception:
             pass
 
+        search_mode = store.get_config("search-mode", "fts5")
+        min_rank = (
+            PROMPT_SEARCH_MIN_RANK_VECTOR
+            if search_mode in ("embeddings", "hybrid")
+            else PROMPT_SEARCH_MIN_RANK
+        )
+
         results = []
         if current_project:
-            results = store.search_expanded(
+            results = store.search_auto(
                 search_query,
                 limit=PROMPT_SEARCH_MAX_RESULTS,
                 project=current_project,
             )
         if len(results) < PROMPT_SEARCH_MAX_RESULTS:
-            global_results = store.search_expanded(search_query, limit=PROMPT_SEARCH_MAX_RESULTS)
+            global_results = store.search_auto(search_query, limit=PROMPT_SEARCH_MAX_RESULTS)
             seen_ids = {r.memory.id for r in results}
             for r in global_results:
                 if r.memory.id not in seen_ids and len(results) < PROMPT_SEARCH_MAX_RESULTS:
                     results.append(r)
                     seen_ids.add(r.memory.id)
 
-        results = [r for r in results if r.rank <= PROMPT_SEARCH_MIN_RANK]
+        results = [r for r in results if r.rank <= min_rank]
         if not results:
             return
 

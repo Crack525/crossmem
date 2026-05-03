@@ -2,6 +2,33 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.7.0] — 2026-05-03
+
+### Added
+
+**Semantic search via embeddings backend (optional)**
+
+FTS5 keyword search is now supplemented by a full vector search backend using fastembed + sqlite-vec. Install with `pip install 'crossmem[embeddings]'` to enable.
+
+- **`embeddings.py`**: Lazy-loaded fastembed singleton; embeds text to 384-dim float32 vectors using `sentence-transformers/all-MiniLM-L6-v2` (~22MB ONNX model, no torch required)
+- **`vec_memories` virtual table**: `vec0` table storing per-memory embeddings; created on first use when embeddings backend is available
+- **`search_vector()`**: ANN cosine search returning `rank = distance - 1 ∈ [-1, 1]`; threshold `PROMPT_SEARCH_MIN_RANK_VECTOR = -0.5` (cosine similarity ≥ 0.5)
+- **`search_hybrid()`**: Combines FTS5 + vector scores — `0.3 * fts_sim + 0.7 * vec_sim` — for best of both keyword precision and semantic recall
+- **`search_auto()`**: Dispatches to `search_expanded` / `search_vector` / `search_hybrid` based on configured search mode
+- **Migration 6**: Adds `crossmem_config` table (key/value) for user-configurable settings
+- **`crossmem config set/get`**: CLI subcommands to read/write configuration; `crossmem config set search-mode hybrid`
+- **`crossmem config backfill-embeddings`**: Embeds all existing memories that lack a stored vector
+- **Graceful degradation**: `_vec_available` flag ensures clean fallback to FTS5 if sqlite-vec or fastembed not installed; zero breaking changes for existing users
+
+**To upgrade to semantic search:**
+```
+pip install 'crossmem[embeddings]'
+crossmem config set search-mode hybrid
+crossmem config backfill-embeddings
+```
+
+---
+
 ## [1.6.0] — 2026-05-03
 
 ### Changed
