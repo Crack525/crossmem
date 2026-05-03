@@ -90,8 +90,9 @@ gemini                    # Gemini: calls mem_recall via instruction in GEMINI.m
    curated memories > tool memories > CLAUDE.md > CONTRIBUTING.md > README.md
 4. **Mid-session recall** (Claude Code + VS Code Agent Mode) — every prompt is searched against your memories. Relevant context is injected before the model responds — no manual `mem_recall` needed.
 5. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds.
-6. **Smart search** (v1.1.0) — a two-layer noise filter separates signal tokens from noise before every FTS query. Layer 1 excludes 168 linguistically fixed closed-class words (prepositions, pronouns, auxiliaries, etc.) in O(1). Layer 2 applies corpus-adaptive IDF via FTS5 — tokens that appear in more than 40% of your documents are treated as project-specific noise. Zero additional dependencies.
-7. **Scope model** (v1.2.0) — memories are either `project`-scoped (visible only within their project) or `global` (surfaced everywhere). Memories saved identically across 2+ projects are automatically promoted to global via `auto_promote_patterns()`.
+6. **Freshness tracking** (v1.3.0) — every memory carries a `last_verified` timestamp. `mem_recall` and `mem_search` surface `[verified: YYYY-MM-DD]` or `[unverified]` next to each result so agents can judge trust level at a glance. Use `mem_verify(id)` to stamp a memory as confirmed without changing its content.
+7. **Smart search** (v1.1.0) — a two-layer noise filter separates signal tokens from noise before every FTS query. Layer 1 excludes 168 linguistically fixed closed-class words (prepositions, pronouns, auxiliaries, etc.) in O(1). Layer 2 applies corpus-adaptive IDF via FTS5 — tokens that appear in more than 40% of your documents are treated as project-specific noise. Zero additional dependencies.
+8. **Scope model** (v1.2.0) — memories are either `project`-scoped (visible only within their project) or `global` (surfaced everywhere). Memories saved identically across 2+ projects are automatically promoted to global via `auto_promote_patterns()`.
 
 ## MCP Server
 
@@ -152,6 +153,7 @@ Add to your tool's MCP config so AI assistants can search, recall, and save memo
 | `mem_update` | Update a memory in place (preserves ID) |
 | `mem_forget` | Delete a memory by ID |
 | `mem_get` | Get full content of a memory by ID |
+| `mem_verify` | Mark a memory as verified today (no content change) |
 | `mem_init` | Index project documentation files |
 | `mem_ingest` | Refresh the index from native tool memory files |
 

@@ -2,6 +2,22 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.3.0] — 2026-05-03
+
+### Added
+
+**Memory freshness tracking**
+
+Agents were silently trusting stale memories — there was no signal to distinguish "written 3 months ago, never re-verified" from "confirmed accurate yesterday." v1.3.0 adds a `last_verified` timestamp to every memory.
+
+- `last_verified` is set automatically on every `mem_save`, `mem_update`, and ingest write
+- New `mem_verify(memory_id)` MCP tool stamps a memory as verified today without changing its content — use it when you've confirmed a memory is still accurate but nothing needs to change
+- `mem_recall` and `mem_search` now show `[verified: YYYY-MM-DD]` or `[unverified]` next to every memory, so agents can judge trust level at a glance
+- Schema migration 5 (idempotent `ALTER TABLE`) — runs automatically on first startup; existing memories get `[unverified]` until re-confirmed
+
+---
+
+
 ## [1.2.0] — 2026-04-28
 
 ### Added

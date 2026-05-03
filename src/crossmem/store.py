@@ -26,6 +26,7 @@ class Memory:
     created_at: str
     keywords: str = field(default="")
     scope: str = field(default="project")
+    last_verified: str | None = field(default=None)
 
     @property
     def snippet(self) -> str:
@@ -184,6 +185,7 @@ class MemoryStore:
         (2, None),  # sentinel — handled by _run_migration_2()
         (3, None),  # sentinel — handled by _run_migration_3()
         (4, None),  # sentinel — handled by _run_migration_4()
+        (5, None),  # sentinel — handled by _run_migration_5()
     ]
 
     def _init_schema(self) -> None:
@@ -205,6 +207,8 @@ class MemoryStore:
                         self._run_migration_3()
                     elif version == 4:
                         self._run_migration_4()
+                    elif version == 5:
+                        self._run_migration_5()
                     else:
                         raise RuntimeError(f"Unsupported migration sentinel: {version}")
                 else:
@@ -288,7 +292,14 @@ class MemoryStore:
         cols = {row[1] for row in self.db.execute("PRAGMA table_info(memories)").fetchall()}
         if "scope" not in cols:
             self.db.execute("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'project'")
-        self.db.commit()
+            self.db.commit()
+
+    def _run_migration_5(self) -> None:
+        """Idempotent migration: add last_verified column."""
+        cols = {row[1] for row in self.db.execute("PRAGMA table_info(memories)").fetchall()}
+        if "last_verified" not in cols:
+            self.db.execute("ALTER TABLE memories ADD COLUMN last_verified TIMESTAMP NULL")
+            self.db.commit()
 
     def _row_to_memory(self, row: sqlite3.Row) -> Memory:
         return Memory(
@@ -301,6 +312,7 @@ class MemoryStore:
             created_at=row["created_at"],
             keywords=row["keywords"],
             scope=row["scope"],
+            last_verified=row["last_verified"],
         )
 
     def add(
@@ -325,8 +337,9 @@ class MemoryStore:
         try:
             cursor = self.db.execute(
                 """INSERT INTO memories
-                   (content, source_file, project, section, content_hash, keywords, scope)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (content, source_file, project, section, content_hash, keywords, scope,
+                    last_verified)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
                 (content, source_file, project, section, content_hash, keywords, scope),
             )
             self.db.commit()
@@ -366,7 +379,8 @@ class MemoryStore:
             try:
                 self.db.execute(
                     """UPDATE memories
-                       SET content = ?, content_hash = ?, keywords = ?
+                       SET content = ?, content_hash = ?, keywords = ?,
+                           last_verified = CURRENT_TIMESTAMP
                        WHERE id = ?""",
                     (content, content_hash, keywords, row["id"]),
                 )
@@ -797,12 +811,22 @@ class MemoryStore:
 
         self.db.execute(
             """UPDATE memories
-               SET content = ?, section = ?, project = ?, content_hash = ?, keywords = ?, scope = ?
+               SET content = ?, section = ?, project = ?, content_hash = ?, keywords = ?, scope = ?,
+                   last_verified = CURRENT_TIMESTAMP
                WHERE id = ?""",
             (content, new_section, new_project, content_hash, keywords, new_scope, memory_id),
         )
         self.db.commit()
         return True
+
+    def verify(self, memory_id: int) -> bool:
+        """Mark a memory as verified today without changing content. Returns True if updated."""
+        cursor = self.db.execute(
+            "UPDATE memories SET last_verified = CURRENT_TIMESTAMP WHERE id = ?",
+            (memory_id,),
+        )
+        self.db.commit()
+        return cursor.rowcount > 0
 
     def delete(self, memory_id: int) -> bool:
         """Delete a memory by ID. Returns True if deleted."""

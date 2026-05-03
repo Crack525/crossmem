@@ -23,6 +23,14 @@ mcp = FastMCP("crossmem")
 _ingested: bool = False
 _ingest_lock = threading.Lock()
 
+
+def _freshness(last_verified: str | None) -> str:
+    """Return a short freshness label, e.g. '[verified: 2026-05-02]' or '[unverified]'."""
+    if not last_verified:
+        return "[unverified]"
+    return f"[verified: {last_verified[:10]}]"
+
+
 _SESSION_FOOTER = (
     "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
     "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
@@ -79,6 +87,7 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
             mem = result.memory
             lines.append(
                 f"[{i}] {mem.project} / {mem.section or '(root)'} (id: {mem.id})"
+                f" {_freshness(mem.last_verified)}"
                 f" — to edit: mem_update(memory_id={mem.id}, content=...)"
             )
             lines.append(f"    Source: {mem.source_file.split('/')[-1]}")
@@ -199,7 +208,10 @@ def mem_recall(
                     lines.append(f"## {project} memories ({len(project_memories)}):\n")
                     for mem in project_memories:
                         section = f" / {mem.section}" if mem.section else ""
-                        lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
+                        lines.append(
+                            f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                            f" **{mem.project}{section}**: {mem.snippet}"
+                        )
                     lines.append("")
                 if shared_memories:
                     lines.append(
@@ -207,7 +219,10 @@ def mem_recall(
                     )
                     for mem in shared_memories:
                         label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-                        lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+                        lines.append(
+                            f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                            f" **{label}**: {mem.snippet}"
+                        )
                     lines.append("")
                 lines.append(_SESSION_FOOTER)
                 return "\n".join(lines)
@@ -216,7 +231,10 @@ def mem_recall(
             for i, result in enumerate(results, 1):
                 mem = result.memory
                 section = f" / {mem.section}" if mem.section else ""
-                lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
+                lines.append(
+                    f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                    f" **{mem.project}{section}**: {mem.snippet}"
+                )
             lines.append("")
 
             seen_ids = {r.memory.id for r in results}
@@ -249,7 +267,10 @@ def mem_recall(
             lines.append(f"## {project} memories ({len(project_memories)}):\n")
             for mem in project_memories:
                 section = f" / {mem.section}" if mem.section else ""
-                lines.append(f"- (id: {mem.id}) **{mem.project}{section}**: {mem.snippet}")
+                lines.append(
+                    f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                    f" **{mem.project}{section}**: {mem.snippet}"
+                )
             lines.append("")
 
         if shared_memories:
@@ -258,7 +279,9 @@ def mem_recall(
             )
             for mem in shared_memories:
                 label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-                lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+                lines.append(
+                    f"- (id: {mem.id}) {_freshness(mem.last_verified)} **{label}**: {mem.snippet}"
+                )
             lines.append("")
 
         if not lines:
@@ -451,6 +474,33 @@ def mem_forget(memory_id: int) -> str:
         store.delete(memory_id)
         return (
             f"Deleted memory {memory_id}: "
+            f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
+        )
+    finally:
+        store.close()
+
+
+@mcp.tool()
+def mem_verify(memory_id: int) -> str:
+    """Mark a memory as verified without changing its content.
+
+    Use this when you've checked that a memory is still accurate but
+    nothing needs to change. Updates the verified timestamp so future
+    sessions can judge freshness without guessing from the creation date.
+
+    Args:
+        memory_id: The ID of the memory to verify (shown in search/recall results)
+    """
+    store = get_store()
+    try:
+        mem = store.get(memory_id)
+        if not mem:
+            return f"Memory {memory_id} not found."
+        updated = store.verify(memory_id)
+        if not updated:
+            return f"Failed to verify memory {memory_id}."
+        return (
+            f"Verified memory {memory_id}: "
             f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
         )
     finally:
