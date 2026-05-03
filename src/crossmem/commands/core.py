@@ -109,6 +109,33 @@ def forget(memory_id: int | None, project: str | None, confirm: bool) -> None:
         store.close()
 
 
+@click.command("purge-stale")
+@click.option("--confirm", is_flag=True, help="Skip confirmation prompt")
+def purge_stale(confirm: bool) -> None:
+    """Delete memories whose source files no longer exist on disk."""
+    store = MemoryStore()
+    try:
+        import os
+
+        rows = store.db.execute(
+            "SELECT COUNT(*) FROM memories WHERE source_file IS NOT NULL"
+        ).fetchone()[0]
+        stale_rows = store.db.execute(
+            "SELECT id, source_file FROM memories WHERE source_file IS NOT NULL"
+        ).fetchall()
+        stale_ids = [r["id"] for r in stale_rows if not os.path.exists(r["source_file"])]
+        if not stale_ids:
+            click.echo("No stale memories found.")
+            return
+        click.echo(f"Found {len(stale_ids)} stale memories (out of {rows} with source files).")
+        if not confirm and not click.confirm(f"Delete {len(stale_ids)} stale memories?"):
+            return
+        deleted = store.purge_stale()
+        click.echo(f"Deleted {deleted} stale memories.")
+    finally:
+        store.close()
+
+
 @click.command()
 @click.argument("memory_id", type=int)
 @click.argument("content")

@@ -9,6 +9,7 @@ from crossmem.commands.core import (
     graph,
     ingest,
     init,
+    purge_stale,
     save,
     search,
     serve,
@@ -32,6 +33,7 @@ main.add_command(ingest)
 main.add_command(search)
 main.add_command(benchmark)
 main.add_command(forget)
+main.add_command(purge_stale)
 main.add_command(update)
 main.add_command(save)
 main.add_command(graph)

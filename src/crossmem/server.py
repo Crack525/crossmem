@@ -120,7 +120,7 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
         project = project.strip() if project else None
         if not project:
             project = None
-        results = store.search(query, limit=limit, project=project)
+        results = store.search_auto(query, limit=limit, project=project)
 
         if not results:
             return f'No results for "{query}"'

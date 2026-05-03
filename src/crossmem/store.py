@@ -1076,6 +1076,21 @@ class MemoryStore:
         self.db.commit()
         return cursor.rowcount
 
+    def purge_stale(self) -> int:
+        """Delete memories whose source_file no longer exists on disk. Returns count deleted."""
+        import os
+
+        rows = self.db.execute("SELECT id FROM memories WHERE source_file IS NOT NULL").fetchall()
+        stale_ids = [row["id"] for row in rows if not os.path.exists(row["source_file"])]
+        if not stale_ids:
+            return 0
+        placeholders = ",".join("?" * len(stale_ids))
+        self.db.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", stale_ids)
+        if self._vec_available:
+            self.db.execute(f"DELETE FROM vec_memories WHERE rowid IN ({placeholders})", stale_ids)
+        self.db.commit()
+        return len(stale_ids)
+
     def get(self, memory_id: int) -> Memory | None:
         """Get a single memory by ID."""
         row = self.db.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
