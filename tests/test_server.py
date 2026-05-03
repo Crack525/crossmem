@@ -118,10 +118,12 @@ class TestMemSave:
         )
         assert "Saved to 'brand-new-project'" in result
 
-    def test_save_source_file_is_mcp(self) -> None:
+    def test_save_source_file_is_backing_file(self) -> None:
         mem_save(content="Test source tracking", project="my-app")
         memories = self._store.get_by_project("my-app")
-        assert memories[0].source_file == "mcp:mem_save"
+        from crossmem.server import _CROSSMEM_BACKING_DIR
+        assert memories[0].source_file.startswith(str(_CROSSMEM_BACKING_DIR))
+        assert memories[0].source_file.endswith(".md")
 
 
 class TestMemForget:

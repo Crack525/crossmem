@@ -528,3 +528,54 @@ def ingest_claude_memory(store: MemoryStore, base_path: Path | None = None) -> i
                     added += 1
 
     return added
+
+
+def ingest_crossmem_saved(store: MemoryStore, base_path: Path | None = None) -> int:
+    """Ingest backing files written by mem_save into the store.
+
+    Reads ~/.crossmem/memories/<project>/<hash>.md. Each file is a single
+    memory (no section splitting) — frontmatter carries type/scope/why/how_to_apply.
+    """
+    if base_path is None:
+        base_path = Path.home() / ".crossmem" / "memories"
+
+    if not base_path.exists():
+        return 0
+
+    added = 0
+    for md_file in sorted(base_path.rglob("*.md")):
+        project = md_file.parent.name
+        if not project:
+            continue
+
+        raw = md_file.read_text(encoding="utf-8", errors="replace")
+        if not raw.strip():
+            continue
+
+        fm, content = parse_frontmatter(raw)
+        content = content.strip()
+        if not content:
+            continue
+
+        mem_type = fm.get("type", "project")
+        mem_description = fm.get("description", "")
+        mem_scope = fm.get("scope") or ("global" if mem_type in _GLOBAL_TYPES else "project")
+        mem_why = fm.get("why", "")
+        mem_how_to_apply = fm.get("how_to_apply", "")
+        section = fm.get("name", "") or fm.get("section", "")
+
+        result = store.upsert(
+            content=content,
+            source_file=str(md_file),
+            project=project,
+            section=section,
+            scope=mem_scope,
+            type=mem_type,
+            why=mem_why,
+            how_to_apply=mem_how_to_apply,
+            description=mem_description,
+        )
+        if result is not None:
+            added += 1
+
+    return added

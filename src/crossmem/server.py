@@ -1,5 +1,6 @@
 """MCP server for crossmem — exposes memory search to AI coding tools."""
 
+import hashlib
 import os
 import re
 import threading
@@ -12,6 +13,7 @@ from crossmem.ingest import (
     has_project_docs,
     ingest_claude_memory,
     ingest_copilot_memory,
+    ingest_crossmem_saved,
     ingest_gemini_memory,
     ingest_project_docs,
 )
@@ -19,6 +21,33 @@ from crossmem.stopwords import CLOSED_CLASS
 from crossmem.store import MemoryStore
 
 mcp = FastMCP("crossmem")
+
+_CROSSMEM_BACKING_DIR = Path.home() / ".crossmem" / "memories"
+
+
+def _write_backing_file(
+    *,
+    path: Path,
+    section: str,
+    content: str,
+    mem_type: str,
+    scope: str,
+    why: str,
+    how_to_apply: str,
+    description: str,
+) -> None:
+    """Write (or overwrite) a backing markdown file for a saved memory."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["---", f"name: {section or 'Memory'}"]
+    if description:
+        lines.append(f"description: {description}")
+    lines += [f"type: {mem_type}", f"scope: {scope}"]
+    if why:
+        lines.append(f"why: {why}")
+    if how_to_apply:
+        lines.append(f"how_to_apply: {how_to_apply}")
+    lines += ["---", "", content]
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 _ingested: bool = False
 _ingest_lock = threading.Lock()
@@ -201,6 +230,7 @@ def get_store() -> MemoryStore:
                 ingest_claude_memory(store)
                 ingest_gemini_memory(store)
                 ingest_copilot_memory(store)
+                ingest_crossmem_saved(store)
                 _ingested = True
     return store
 
@@ -505,9 +535,12 @@ def mem_save(
                 # Derive project name from last cwd segment
                 project = Path(cwd).name.lower().replace("_", "-") or "unknown"
 
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        backing_file = _CROSSMEM_BACKING_DIR / project / f"{content_hash[:8]}.md"
+
         result = store.add(
             content=content,
-            source_file="mcp:mem_save",
+            source_file=str(backing_file),
             project=project,
             section=section,
             scope=scope,
@@ -519,6 +552,17 @@ def mem_save(
 
         if result is None:
             return f"Memory already exists for project '{project}'."
+
+        _write_backing_file(
+            path=backing_file,
+            section=section,
+            content=content,
+            mem_type=type,
+            scope=scope,
+            why=why,
+            how_to_apply=how_to_apply,
+            description=description,
+        )
 
         msg = f"Saved to '{project}'" + (f" / {section}" if section else "") + f" (id: {result})"
 
@@ -614,6 +658,23 @@ def mem_update(
 
         new_section = section if section is not None else mem.section
         new_project = project if project is not None else mem.project
+        new_scope = scope if scope is not None else (getattr(mem, "scope", None) or "project")
+
+        if mem.source_file and mem.source_file.startswith(str(_CROSSMEM_BACKING_DIR)):
+            try:
+                _write_backing_file(
+                    path=Path(mem.source_file),
+                    section=new_section or "",
+                    content=content,
+                    mem_type=getattr(mem, "type", "project") or "project",
+                    scope=new_scope,
+                    why=getattr(mem, "why", "") or "",
+                    how_to_apply=getattr(mem, "how_to_apply", "") or "",
+                    description=getattr(mem, "description", "") or "",
+                )
+            except Exception:
+                pass
+
         return f"Updated memory {memory_id}: {new_project}" + (
             f" / {new_section}" if new_section else ""
         )
@@ -652,6 +713,13 @@ def mem_forget(memory_id: int) -> str:
             )
 
         store.delete(memory_id)
+
+        if mem.source_file and mem.source_file.startswith(str(_CROSSMEM_BACKING_DIR)):
+            try:
+                Path(mem.source_file).unlink(missing_ok=True)
+            except Exception:
+                pass
+
         return (
             f"Deleted memory {memory_id}: "
             f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
