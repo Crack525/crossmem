@@ -122,6 +122,7 @@ class TestMemSave:
         mem_save(content="Test source tracking", project="my-app")
         memories = self._store.get_by_project("my-app")
         from crossmem.server import _CROSSMEM_BACKING_DIR
+
         assert memories[0].source_file.startswith(str(_CROSSMEM_BACKING_DIR))
         assert memories[0].source_file.endswith(".md")
 

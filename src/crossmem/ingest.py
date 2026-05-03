@@ -146,7 +146,7 @@ def parse_frontmatter(content: str) -> tuple[dict[str, str], str]:
             key, _, val = line.partition(":")
             fields[key.strip()] = val.strip()
 
-    body = content[match.end():]
+    body = content[match.end() :]
     return fields, body
 
 
