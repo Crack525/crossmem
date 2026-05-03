@@ -78,6 +78,36 @@ _SESSION_FOOTER = (
     "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
     "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
 )
+
+
+def _dedup_memories(memories: list) -> list:
+    """Return memories with duplicate content_hash entries removed (keeps first seen)."""
+    seen: set[str] = set()
+    out = []
+    for mem in memories:
+        h = getattr(mem, "content_hash", None)
+        if h and h in seen:
+            continue
+        if h:
+            seen.add(h)
+        out.append(mem)
+    return out
+
+
+def _dedup_search_results(results: list) -> list:
+    """Return search results with duplicate content_hash entries removed (keeps first seen)."""
+    seen: set[str] = set()
+    out = []
+    for r in results:
+        h = getattr(r.memory, "content_hash", None)
+        if h and h in seen:
+            continue
+        if h:
+            seen.add(h)
+        out.append(r)
+    return out
+
+
 _MCP_RECALL_LIMIT: int = 10
 # Hard limit for mem_save content. Prevents accidental full-file dumps that
 # inflate the DB, degrade FTS5 ranking, and bloat future recall context.
@@ -120,7 +150,7 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
         project = project.strip() if project else None
         if not project:
             project = None
-        results = store.search_auto(query, limit=limit, project=project)
+        results = _dedup_search_results(store.search_auto(query, limit=limit, project=project))
 
         if not results:
             return f'No results for "{query}"'
@@ -293,15 +323,20 @@ def mem_recall(
             return "\n".join(lines)
 
         # Get project-specific memories from the store
-        project_memories = store.get_by_project(project)
+        project_memories = _dedup_memories(store.get_by_project(project))
 
         # Auto-init if project exists but has no memories yet
         if not project_memories and has_project_docs(project_dir):
             ingest_project_docs(store, project_dir, project=project)
-            project_memories = store.get_by_project(project)
+            project_memories = _dedup_memories(store.get_by_project(project))
 
         # Get globally scoped memories (cross-project patterns)
-        shared_memories = store.get_global_memories(limit=20)
+        seen_project_hashes = {m.content_hash for m in project_memories if m.content_hash}
+        shared_memories = [
+            m
+            for m in store.get_global_memories(limit=20)
+            if m.content_hash not in seen_project_hashes
+        ]
 
         lines = []
 
