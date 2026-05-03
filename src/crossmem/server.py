@@ -30,6 +30,7 @@ def _freshness(last_verified: str | None) -> str:
         return "[unverified]"
     return f"[verified: {last_verified[:10]}]"
 
+
 _SESSION_FOOTER = (
     "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
     "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
