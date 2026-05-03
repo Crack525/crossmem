@@ -344,9 +344,7 @@ class MemoryStore:
 
     def get_config(self, key: str, default: str = "") -> str:
         """Get a config value. Returns default if key not set."""
-        row = self.db.execute(
-            "SELECT value FROM crossmem_config WHERE key = ?", (key,)
-        ).fetchone()
+        row = self.db.execute("SELECT value FROM crossmem_config WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
 
     def set_config(self, key: str, value: str) -> None:

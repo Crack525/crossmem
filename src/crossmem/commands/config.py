@@ -50,8 +50,7 @@ def config_set(key: str, value: str) -> None:
                 )
             else:
                 unembedded = store.db.execute(
-                    "SELECT COUNT(*) FROM memories WHERE id NOT IN "
-                    "(SELECT rowid FROM vec_memories)"
+                    "SELECT COUNT(*) FROM memories WHERE id NOT IN (SELECT rowid FROM vec_memories)"
                 ).fetchone()[0]
                 if unembedded:
                     click.echo(
@@ -94,8 +93,7 @@ def backfill_embeddings() -> None:
     try:
         if not store._vec_available:
             click.echo(
-                "Embeddings backend not active. "
-                "Install with: pip install 'crossmem[embeddings]'"
+                "Embeddings backend not active. Install with: pip install 'crossmem[embeddings]'"
             )
             return
         click.echo("Backfilling embeddings for un-embedded memories…")
