@@ -320,7 +320,7 @@ class TestSchemaMigration:
     def test_fresh_db_gets_current_version(self, tmp_path: Path) -> None:
         store = MemoryStore(db_path=tmp_path / "fresh.db")
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 5
+        assert row["v"] == 6
         store.close()
 
     def test_preexisting_db_upgraded(self, tmp_path: Path) -> None:
@@ -360,7 +360,7 @@ class TestSchemaMigration:
         mem = store.get(1)
         assert mem.content == "legacy data"
         row = store.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 5
+        assert row["v"] == 6
         store.close()
 
     def test_reopening_db_is_idempotent(self, tmp_path: Path) -> None:
@@ -511,7 +511,7 @@ class TestMigration2:
         store2 = MemoryStore(db_path=db_path)
         assert store2.count() == 1
         row = store2.db.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        assert row["v"] == 5
+        assert row["v"] == 6
         store2.close()
 
     def test_hyphenated_term_in_synonym_group_quoted(self, store: MemoryStore) -> None:
