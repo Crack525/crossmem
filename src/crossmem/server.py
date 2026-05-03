@@ -742,6 +742,72 @@ def mem_init(cwd: str | None = None, project: str | None = None) -> str:
         store.close()
 
 
+@mcp.tool()
+def mem_deduplicate(
+    project: str | None = None,
+    dry_run: bool = True,
+    threshold: float | None = None,
+) -> str:
+    """Scan the memory store for near-duplicate entries and optionally remove them.
+
+    Near-duplicates are memory pairs whose embedding cosine distance is below the
+    dedup threshold (default 0.05). The older record (lower id) is kept; the newer
+    one is removed.
+
+    Args:
+        project: Limit scan to a specific project (default: scan all projects)
+        dry_run: When True (default), report pairs without deleting anything
+        threshold: Override cosine distance threshold (0.0–1.0; lower = stricter)
+
+    Returns a report listing each duplicate pair with content snippets and the
+    action taken (or "would remove" in dry_run mode).
+    """
+    store = get_store()
+    try:
+        pairs = store.scan_near_duplicates(project=project, threshold=threshold)
+
+        if not pairs:
+            scope_note = f" in project '{project}'" if project else ""
+            return f"No near-duplicate memories found{scope_note}."
+
+        lines: list[str] = []
+        removed = 0
+
+        for keeper, dup, distance in pairs:
+            keeper_snippet = keeper.content[:120].replace("\n", " ").strip()
+            dup_snippet = dup.content[:120].replace("\n", " ").strip()
+            if len(keeper.content) > 120:
+                keeper_snippet += "..."
+            if len(dup.content) > 120:
+                dup_snippet += "..."
+
+            lines.append(
+                f"KEEP  [{keeper.id}] ({keeper.project}/{keeper.section}): {keeper_snippet}"
+            )
+            lines.append(
+                f"  DUP [{dup.id}] ({dup.project}/{dup.section}, dist={distance:.4f}): {dup_snippet}"
+            )
+
+            if not dry_run:
+                store.delete(dup.id)
+                removed += 1
+                lines.append(f"  → Deleted [{dup.id}]")
+            else:
+                lines.append(f"  → Would delete [{dup.id}] (dry_run=True)")
+
+            lines.append("")
+
+        summary = f"Found {len(pairs)} near-duplicate pair(s)."
+        if not dry_run:
+            summary += f" Removed {removed}."
+        else:
+            summary += f" Re-run with dry_run=False to remove {len(pairs)} duplicate(s)."
+
+        return summary + "\n\n" + "\n".join(lines).rstrip()
+    finally:
+        store.close()
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

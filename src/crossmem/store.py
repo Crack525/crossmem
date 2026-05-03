@@ -614,6 +614,121 @@ class MemoryStore:
             pass
         return None
 
+    def scan_near_duplicates(
+        self,
+        project: str | None = None,
+        threshold: float | None = None,
+    ) -> list[tuple[Memory, Memory, float]]:
+        """Return (keeper, duplicate, distance) triples for near-duplicate pairs.
+
+        Scans every memory in the store (or a single project). For each memory,
+        queries vec_memories for the closest neighbour within threshold. Pairs are
+        de-duped so (A, B) and (B, A) are not both returned. Keeper = lower id
+        (older record).
+
+        Returns [] when embeddings are unavailable.
+        """
+        if not self._vec_available:
+            return []
+
+        eff_threshold = threshold if threshold is not None else self._COSINE_DEDUP_THRESHOLD
+
+        try:
+            from crossmem import embeddings as _emb
+        except Exception:
+            return []
+
+        if project:
+            rows = self.db.execute(
+                "SELECT id, content, source_file, project, section, content_hash, "
+                "created_at, keywords, scope, last_verified, type, why, how_to_apply, description "
+                "FROM memories WHERE project = ? ORDER BY id",
+                (project,),
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "SELECT id, content, source_file, project, section, content_hash, "
+                "created_at, keywords, scope, last_verified, type, why, how_to_apply, description "
+                "FROM memories ORDER BY id",
+            ).fetchall()
+
+        def _row_to_memory(r: dict) -> Memory:
+            return Memory(
+                id=r["id"],
+                content=r["content"],
+                source_file=r["source_file"],
+                project=r["project"],
+                section=r["section"],
+                content_hash=r["content_hash"],
+                created_at=r["created_at"],
+                keywords=r["keywords"] or "",
+                scope=r["scope"] or "project",
+                last_verified=r["last_verified"],
+                type=r["type"] or "project",
+                why=r["why"] or "",
+                how_to_apply=r["how_to_apply"] or "",
+                description=r["description"] or "",
+            )
+
+        seen_pairs: set[tuple[int, int]] = set()
+        results: list[tuple[Memory, Memory, float]] = []
+
+        for row in rows:
+            mem_id = row["id"]
+            vec = _emb.embed(row["content"])
+            if vec is None:
+                continue
+            try:
+                neighbours = self.db.execute(
+                    "SELECT rowid, distance FROM vec_memories WHERE embedding MATCH ? AND k = 5",
+                    (vec,),
+                ).fetchall()
+            except Exception:
+                continue
+
+            for nb in neighbours:
+                if nb["distance"] >= eff_threshold:
+                    break
+                nb_id = nb["rowid"]
+                if nb_id == mem_id:
+                    continue
+                pair = (min(mem_id, nb_id), max(mem_id, nb_id))
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+
+                nb_row = self.db.execute(
+                    "SELECT id, content, source_file, project, section, content_hash, "
+                    "created_at, keywords, scope, last_verified, type, why, how_to_apply, description "
+                    "FROM memories WHERE id = ?",
+                    (nb_id,),
+                ).fetchone()
+                if not nb_row:
+                    continue
+
+                # keeper = lower id (older); duplicate = higher id (newer)
+                if mem_id < nb_id:
+                    keeper = _row_to_memory(dict(row))
+                    dup = _row_to_memory(dict(nb_row))
+                else:
+                    keeper = _row_to_memory(dict(nb_row))
+                    dup = _row_to_memory(dict(row))
+
+                results.append((keeper, dup, nb["distance"]))
+
+        return results
+
+    def delete(self, memory_id: int) -> bool:
+        """Delete a memory by id. Returns True if a row was deleted."""
+        cur = self.db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        if self._vec_available:
+            try:
+                self.db.execute("DELETE FROM vec_memories WHERE rowid = ?", (memory_id,))
+            except Exception:
+                pass
+        self.db.commit()
+        return cur.rowcount > 0
+
     def add(
         self,
         content: str,

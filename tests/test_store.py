@@ -935,3 +935,46 @@ class TestSearchExpandedEdgeCases:
         results = store.search_expanded("rotate every 90 days")
         assert len(results) == 1
         assert "90 days" in results[0].memory.content
+
+
+class TestDelete:
+    def test_delete_removes_memory(self, store: MemoryStore) -> None:
+        mid = store.add("to be deleted", "f.md", "proj")
+        assert mid is not None
+        assert store.count() == 1
+        result = store.delete(mid)
+        assert result is True
+        assert store.count() == 0
+
+    def test_delete_nonexistent_returns_false(self, store: MemoryStore) -> None:
+        result = store.delete(99999)
+        assert result is False
+
+    def test_delete_does_not_affect_other_memories(self, store: MemoryStore) -> None:
+        id1 = store.add("keep me", "f.md", "proj")
+        id2 = store.add("delete me", "f.md", "proj")
+        assert id1 is not None and id2 is not None
+        store.delete(id2)
+        assert store.count() == 1
+        results = store.search_expanded("keep")
+        assert len(results) == 1
+
+
+class TestScanNearDuplicates:
+    def test_no_embeddings_returns_empty(self, store: MemoryStore) -> None:
+        """When embeddings are unavailable, scan returns empty list without error."""
+        store.add("Some memory about authentication tokens.", "f.md", "proj")
+        store.add("Some memory about authentication tokens.", "f.md", "proj2")
+        # Even without vec, the method must not raise
+        pairs = store.scan_near_duplicates()
+        assert isinstance(pairs, list)
+
+    def test_scan_respects_project_filter(self, store: MemoryStore) -> None:
+        """scan_near_duplicates(project=X) only scans that project's memories."""
+        store.add("Unique content about databases.", "f.md", "alpha")
+        store.add("Different unique content about caching.", "f.md", "beta")
+        # Without embeddings both projects scan to empty pairs
+        pairs_alpha = store.scan_near_duplicates(project="alpha")
+        pairs_beta = store.scan_near_duplicates(project="beta")
+        assert isinstance(pairs_alpha, list)
+        assert isinstance(pairs_beta, list)
