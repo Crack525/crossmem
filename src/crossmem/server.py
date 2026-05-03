@@ -1,6 +1,8 @@
 """MCP server for crossmem — exposes memory search to AI coding tools."""
 
 import os
+import re
+import threading
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -13,11 +15,13 @@ from crossmem.ingest import (
     ingest_gemini_memory,
     ingest_project_docs,
 )
+from crossmem.stopwords import CLOSED_CLASS
 from crossmem.store import MemoryStore
 
 mcp = FastMCP("crossmem")
 
 _ingested: bool = False
+_ingest_lock = threading.Lock()
 
 
 def _freshness(last_verified: str | None) -> str:
@@ -31,21 +35,27 @@ _SESSION_FOOTER = (
     "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
 )
 _MCP_RECALL_LIMIT: int = 10
+# Hard limit for mem_save content. Prevents accidental full-file dumps that
+# inflate the DB, degrade FTS5 ranking, and bloat future recall context.
+_MEM_SAVE_MAX_CHARS: int = 1000
 
 
 def get_store() -> MemoryStore:
     """Return a fresh MemoryStore connection.
 
     Caller MUST call store.close() when done to release the DB lock.
-    Auto-ingest runs once on the first call per process.
+    Auto-ingest runs once on the first call per process, guarded by a lock
+    so concurrent MCP tool calls cannot trigger duplicate ingestion.
     """
     global _ingested
     store = MemoryStore()
     if not _ingested:
-        ingest_claude_memory(store)
-        ingest_gemini_memory(store)
-        ingest_copilot_memory(store)
-        _ingested = True
+        with _ingest_lock:
+            if not _ingested:
+                ingest_claude_memory(store)
+                ingest_gemini_memory(store)
+                ingest_copilot_memory(store)
+                _ingested = True
     return store
 
 
@@ -63,6 +73,9 @@ def mem_search(query: str, project: str | None = None, limit: int = 10) -> str:
     """
     store = get_store()
     try:
+        project = project.strip() if project else None
+        if not project:
+            project = None
         results = store.search(query, limit=limit, project=project)
 
         if not results:
@@ -94,6 +107,8 @@ def resolve_project(cwd: str, known_projects: list[str]) -> str | None:
     3. Fuzzy segment match — last 1-3 path segments combined with hyphens
        match a project name (mirrors Claude's path encoding)
     """
+    if not isinstance(cwd, str):
+        return None
     path = Path(cwd)
     segments = [s.lower().replace("_", "-") for s in path.parts if s != "/"]
     projects_lower = {p.lower().replace("_", "-"): p for p in known_projects}
@@ -104,9 +119,10 @@ def resolve_project(cwd: str, known_projects: list[str]) -> str | None:
             return projects_lower[seg]
 
     # 2. Suffix match — e.g. cwd "my-backend-api" matches project "backend-api"
+    # Require a hyphen boundary to prevent "my-app" matching project "app".
     for seg in reversed(segments):
         for plower, poriginal in projects_lower.items():
-            if seg.endswith(plower):
+            if seg == plower or seg.endswith("-" + plower):
                 return poriginal
 
     # 3. Fuzzy: combine last N segments with hyphens (how Claude encodes paths)
@@ -145,6 +161,9 @@ def mem_recall(
     try:
         cwd = cwd or os.getcwd()
         project_dir = Path(cwd)
+        project = project.strip() if project else None
+        if not project:
+            project = None
 
         if not project:
             known = store.list_projects()
@@ -154,6 +173,20 @@ def mem_recall(
                     project = derive_project_name(project_dir)
                     ingest_project_docs(store, project_dir, project=project)
                 else:
+                    global_mems = store.get_global_memories(limit=10)
+                    if global_mems:
+                        lines = [
+                            f'Could not detect project from "{cwd}".',
+                            f"Known projects: {', '.join(known)}",
+                            "Pass an explicit project name to mem_recall(project=...).\n",
+                            f"## Cross-project patterns ({len(global_mems)} available):\n",
+                        ]
+                        for mem in global_mems:
+                            label = f"{mem.project} / {mem.section}" if mem.section else mem.project
+                            lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+                        lines.append("")
+                        lines.append(_SESSION_FOOTER)
+                        return "\n".join(lines)
                     return (
                         f'Could not detect project from "{cwd}".\n'
                         f"Known projects: {', '.join(known)}\n"
@@ -168,7 +201,7 @@ def mem_recall(
                 if not project_memories and has_project_docs(project_dir):
                     ingest_project_docs(store, project_dir, project=project)
                     project_memories = store.get_by_project(project)
-                shared_memories = store.get_shared_sections(project)
+                shared_memories = store.get_global_memories(limit=20)
                 lines = [f'_(No scoped results for "{query}". Showing all {project} memories.)_\n']
                 if project_memories:
                     lines.append(f"## {project} memories ({len(project_memories)}):\n")
@@ -202,6 +235,17 @@ def mem_recall(
                     f" **{mem.project}{section}**: {mem.snippet}"
                 )
             lines.append("")
+
+            seen_ids = {r.memory.id for r in results}
+            global_mems = store.get_global_memories(query=query, limit=5)
+            global_mems = [m for m in global_mems if m.id not in seen_ids]
+            if global_mems:
+                lines.append(f"## Cross-project patterns (scoped: {query!r}):\n")
+                for mem in global_mems:
+                    label = f"{mem.project} / {mem.section}" if mem.section else mem.project
+                    lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+                lines.append("")
+
             lines.append(_SESSION_FOOTER)
             return "\n".join(lines)
 
@@ -213,8 +257,8 @@ def mem_recall(
             ingest_project_docs(store, project_dir, project=project)
             project_memories = store.get_by_project(project)
 
-        # Get cross-project patterns (other projects sharing the same section names)
-        shared_memories = store.get_shared_sections(project)
+        # Get globally scoped memories (cross-project patterns)
+        shared_memories = store.get_global_memories(limit=20)
 
         lines = []
 
@@ -254,6 +298,7 @@ def mem_save(
     section: str = "",
     project: str | None = None,
     cwd: str | None = None,
+    scope: str = "project",
 ) -> str:
     """Save a memory during a coding session.
 
@@ -268,22 +313,41 @@ def mem_save(
         section: Category heading (e.g. "Security", "Architecture", "Gotchas")
         project: Project name (auto-detected from cwd if omitted)
         cwd: Working directory for auto-detection (defaults to os.getcwd())
+        scope: 'project' (default) to keep this memory local to the project,
+               or 'global' to surface it across all projects as a cross-cutting pattern
     """
+    if not content or not content.strip():
+        return "Content cannot be empty."
+    if len(content.strip()) < 10:
+        n = len(content.strip())
+        return f"Content too short ({n} chars, min 10). Be specific and actionable."
+    if len(content) > _MEM_SAVE_MAX_CHARS:
+        return (
+            f"Content too long ({len(content)} chars, max {_MEM_SAVE_MAX_CHARS}). "
+            "Distill to one actionable sentence or short paragraph. "
+            "Good: 'Deploy with uv publish --token $TOKEN; token in 1Password.' "
+            "Bad: pasting README sections, code blocks, or full file contents."
+        )
+    if scope not in ("project", "global"):
+        return f"Invalid scope '{scope}'. Use 'project' (default) or 'global'."
+
     store = get_store()
     try:
+        project = project.strip() if project else None
         if not project:
             cwd = cwd or os.getcwd()
             known = store.list_projects()
             project = resolve_project(cwd, known)
             if not project:
                 # Derive project name from last cwd segment
-                project = Path(cwd).name.lower().replace("_", "-")
+                project = Path(cwd).name.lower().replace("_", "-") or "unknown"
 
         result = store.add(
             content=content,
             source_file="mcp:mem_save",
             project=project,
             section=section,
+            scope=scope,
         )
 
         if result is None:
@@ -292,8 +356,14 @@ def mem_save(
         msg = f"Saved to '{project}'" + (f" / {section}" if section else "") + f" (id: {result})"
 
         # Surface similar memories so the agent can update instead of accumulating duplicates.
-        probe = " ".join(content.split()[:12])
-        similar = store.search_expanded(probe, limit=3, project=project)
+        # Use OR mode with stopword-filtered signal words for broader near-duplicate detection.
+        signal_words = [
+            w
+            for raw in content.lower().split()
+            if (w := re.sub(r"[^\w-]", "", raw)) and w not in CLOSED_CLASS and len(w) > 2
+        ]
+        probe = " ".join(signal_words[:8])
+        similar = store.search(probe, limit=3, project=project, or_mode=True) if probe else []
         similar = [r for r in similar if r.memory.id != result]
         if similar:
             hints = ", ".join(f"id:{r.memory.id} — {r.memory.snippet[:60]}" for r in similar[:2])
@@ -332,6 +402,7 @@ def mem_update(
     content: str,
     section: str | None = None,
     project: str | None = None,
+    scope: str | None = None,
 ) -> str:
     """Update an existing memory in place, preserving its ID.
 
@@ -343,7 +414,21 @@ def mem_update(
         content: The new content (replaces the old content entirely)
         section: New section/category (keeps current if omitted)
         project: New project name (keeps current if omitted)
+        scope: 'project' or 'global' — use to promote/demote scope (keeps current if omitted)
     """
+    if not content or not content.strip():
+        return "Content cannot be empty."
+    if len(content.strip()) < 10:
+        n = len(content.strip())
+        return f"Content too short ({n} chars, min 10). Be specific and actionable."
+    if len(content) > _MEM_SAVE_MAX_CHARS:
+        return (
+            f"Content too long ({len(content)} chars, max {_MEM_SAVE_MAX_CHARS}). "
+            "Distill to one actionable sentence or short paragraph."
+        )
+    if scope is not None and scope not in ("project", "global"):
+        return f"Invalid scope '{scope}'. Use 'project' or 'global'."
+
     store = get_store()
     try:
         mem = store.get(memory_id)
@@ -355,6 +440,7 @@ def mem_update(
             content=content,
             section=section,
             project=project,
+            scope=scope,
         )
         if not updated:
             return f"Failed to update memory {memory_id}."
@@ -432,13 +518,16 @@ def mem_ingest() -> str:
         claude_added = ingest_claude_memory(store)
         gemini_added = ingest_gemini_memory(store)
         copilot_added = ingest_copilot_memory(store)
+        promoted = store.auto_promote_patterns()
         total = store.count()
         stats = store.stats()
 
         lines = [
             f"Ingested: {claude_added + gemini_added + copilot_added} new memories ({total} total)",
-            f"Projects ({len(stats)}):",
         ]
+        if promoted:
+            lines.append(f"Auto-promoted: {promoted} memories to global scope")
+        lines.append(f"Projects ({len(stats)}):")
         for proj, count in stats.items():
             lines.append(f"  {proj}: {count}")
 

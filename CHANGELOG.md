@@ -17,6 +17,7 @@ Agents were silently trusting stale memories — there was no signal to distingu
 
 ---
 
+
 ## [1.2.0] — 2026-04-28
 
 ### Added

@@ -28,7 +28,18 @@ That's it. Every AI coding session now starts with cross-project context.
 
 ## Why crossmem?
 
-**40-50% of tokens in a typical AI coding session are wasted re-establishing context** the model already knew last session. In a real experiment, two AI agents (Claude Code and GitHub Copilot) both bypassed their own memory tools and re-derived everything from training data — proving the problem they were explaining.
+Every AI coding session starts cold. The model re-asks the same setup questions, re-derives the same patterns, re-reads the same files — because it has no memory of what you worked through last time.
+
+We measured the impact using [tokenxray](https://github.com/Crack525/tokenxray) across real Claude Code sessions before and after installing crossmem:
+
+| Metric | Delta |
+|---|---|
+| Avg input tokens / session | −74% |
+| Avg cost / session | −83% |
+| Cache hit rate | +18% |
+| Avg turns to reach result | −60% |
+
+*Measured across real sessions. Results vary by project size and task type.*
 
 crossmem fixes this by injecting remembered context **before the AI starts thinking** — not as a suggestion it can ignore, but as enforced context.
 
@@ -81,6 +92,7 @@ gemini                    # Gemini: calls mem_recall via instruction in GEMINI.m
 5. **Learn** — AI saves new discoveries via `mem_save` during sessions. Knowledge compounds.
 6. **Freshness tracking** (v1.3.0) — every memory carries a `last_verified` timestamp. `mem_recall` and `mem_search` surface `[verified: YYYY-MM-DD]` or `[unverified]` next to each result so agents can judge trust level at a glance. Use `mem_verify(id)` to stamp a memory as confirmed without changing its content.
 7. **Smart search** (v1.1.0) — a two-layer noise filter separates signal tokens from noise before every FTS query. Layer 1 excludes 168 linguistically fixed closed-class words (prepositions, pronouns, auxiliaries, etc.) in O(1). Layer 2 applies corpus-adaptive IDF via FTS5 — tokens that appear in more than 40% of your documents are treated as project-specific noise. Zero additional dependencies.
+8. **Scope model** (v1.2.0) — memories are either `project`-scoped (visible only within their project) or `global` (surfaced everywhere). Memories saved identically across 2+ projects are automatically promoted to global via `auto_promote_patterns()`.
 
 ## MCP Server
 
