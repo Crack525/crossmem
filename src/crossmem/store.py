@@ -350,7 +350,8 @@ class MemoryStore:
             try:
                 self.db.execute(
                     """UPDATE memories
-                       SET content = ?, content_hash = ?, keywords = ?, last_verified = CURRENT_TIMESTAMP
+                       SET content = ?, content_hash = ?, keywords = ?,
+                           last_verified = CURRENT_TIMESTAMP
                        WHERE id = ?""",
                     (content, content_hash, keywords, row["id"]),
                 )

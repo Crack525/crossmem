@@ -186,7 +186,8 @@ def mem_recall(
                     for mem in shared_memories:
                         label = f"{mem.project} / {mem.section}" if mem.section else mem.project
                         lines.append(
-                            f"- (id: {mem.id}) {_freshness(mem.last_verified)} **{label}**: {mem.snippet}"
+                            f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                            f" **{label}**: {mem.snippet}"
                         )
                     lines.append("")
                 lines.append(_SESSION_FOOTER)
