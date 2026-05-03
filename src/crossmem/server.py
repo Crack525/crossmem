@@ -80,6 +80,25 @@ _SESSION_FOOTER = (
 )
 
 
+def _format_memory_line(mem, cwd: str | None = None) -> list[str]:
+    """Format a memory as 1-2 lines for recall output.
+
+    Feedback/user memories with how_to_apply get a second line so the
+    behavioral instruction is visually distinct and harder to miss.
+    """
+    section = f" / {mem.section}" if mem.section else ""
+    type_tag = f" [{mem.type}]" if getattr(mem, "type", "project") != "project" else ""
+    line = (
+        f"- (id: {mem.id}) {_status(mem, cwd)}"
+        f" **{mem.project}{section}**{type_tag}: {mem.snippet}"
+    )
+    lines = [line]
+    how_to_apply = getattr(mem, "how_to_apply", "")
+    if how_to_apply and getattr(mem, "type", "") in ("feedback", "user"):
+        lines.append(f"  → **Apply:** {how_to_apply}")
+    return lines
+
+
 def _dedup_memories(memories: list) -> list:
     """Return memories with duplicate content_hash entries removed (keeps first seen)."""
     seen: set[str] = set()
@@ -109,9 +128,13 @@ def _dedup_search_results(results: list) -> list:
 
 
 _MCP_RECALL_LIMIT: int = 10
-# Hard limit for mem_save content. Prevents accidental full-file dumps that
-# inflate the DB, degrade FTS5 ranking, and bloat future recall context.
+# Hard limit for mem_save content. Typed memories (section != "") get 2000 chars;
+# untyped root-level saves keep the tighter 1000-char limit.
 _MEM_SAVE_MAX_CHARS: int = 1000
+_MEM_SAVE_MAX_CHARS_TYPED: int = 2000
+
+_GLOBAL_TYPES: frozenset[str] = frozenset({"user", "feedback"})
+_VALID_TYPES: frozenset[str] = frozenset({"user", "feedback", "project", "reference"})
 
 
 def get_store() -> MemoryStore:
@@ -256,8 +279,7 @@ def mem_recall(
                             f"## Cross-project patterns ({len(global_mems)} available):\n",
                         ]
                         for mem in global_mems:
-                            label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-                            lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+                            lines.extend(_format_memory_line(mem, cwd))
                         lines.append("")
                         lines.append(_SESSION_FOOTER)
                         return "\n".join(lines)
@@ -280,33 +302,21 @@ def mem_recall(
                 if project_memories:
                     lines.append(f"## {project} memories ({len(project_memories)}):\n")
                     for mem in project_memories:
-                        section = f" / {mem.section}" if mem.section else ""
-                        lines.append(
-                            f"- (id: {mem.id}) {_status(mem, cwd)}"
-                            f" **{mem.project}{section}**: {mem.snippet}"
-                        )
+                        lines.extend(_format_memory_line(mem, cwd))
                     lines.append("")
                 if shared_memories:
                     lines.append(
                         f"## Cross-project patterns ({len(shared_memories)} from other projects):\n"
                     )
                     for mem in shared_memories:
-                        label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-                        lines.append(
-                            f"- (id: {mem.id}) {_status(mem, cwd)} **{label}**: {mem.snippet}"
-                        )
+                        lines.extend(_format_memory_line(mem, cwd))
                     lines.append("")
                 lines.append(_SESSION_FOOTER)
                 return "\n".join(lines)
 
             lines = [f"## {project} memories (scoped: {query!r}):\n"]
-            for i, result in enumerate(results, 1):
-                mem = result.memory
-                section = f" / {mem.section}" if mem.section else ""
-                lines.append(
-                    f"- (id: {mem.id}) {_status(mem, cwd)}"
-                    f" **{mem.project}{section}**: {mem.snippet}"
-                )
+            for result in results:
+                lines.extend(_format_memory_line(result.memory, cwd))
             lines.append("")
 
             seen_ids = {r.memory.id for r in results}
@@ -315,8 +325,7 @@ def mem_recall(
             if global_mems:
                 lines.append(f"## Cross-project patterns (scoped: {query!r}):\n")
                 for mem in global_mems:
-                    label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-                    lines.append(f"- (id: {mem.id}) **{label}**: {mem.snippet}")
+                    lines.extend(_format_memory_line(mem, cwd))
                 lines.append("")
 
             lines.append(_SESSION_FOOTER)
@@ -343,11 +352,7 @@ def mem_recall(
         if project_memories:
             lines.append(f"## {project} memories ({len(project_memories)}):\n")
             for mem in project_memories:
-                section = f" / {mem.section}" if mem.section else ""
-                lines.append(
-                    f"- (id: {mem.id}) {_status(mem, cwd)}"
-                    f" **{mem.project}{section}**: {mem.snippet}"
-                )
+                lines.extend(_format_memory_line(mem, cwd))
             lines.append("")
 
         if shared_memories:
@@ -355,8 +360,7 @@ def mem_recall(
                 f"## Cross-project patterns ({len(shared_memories)} from other projects):\n"
             )
             for mem in shared_memories:
-                label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-                lines.append(f"- (id: {mem.id}) {_status(mem, cwd)} **{label}**: {mem.snippet}")
+                lines.extend(_format_memory_line(mem, cwd))
             lines.append("")
 
         if not lines:
@@ -374,7 +378,11 @@ def mem_save(
     section: str = "",
     project: str | None = None,
     cwd: str | None = None,
-    scope: str = "project",
+    scope: str | None = None,
+    type: str = "project",
+    why: str = "",
+    how_to_apply: str = "",
+    description: str = "",
 ) -> str:
     """Save a memory during a coding session.
 
@@ -389,23 +397,41 @@ def mem_save(
         section: Category heading (e.g. "Security", "Architecture", "Gotchas")
         project: Project name (auto-detected from cwd if omitted)
         cwd: Working directory for auto-detection (defaults to os.getcwd())
-        scope: 'project' (default) to keep this memory local to the project,
-               or 'global' to surface it across all projects as a cross-cutting pattern
+        scope: 'project' or 'global'. Auto-derived from type if omitted:
+               user/feedback → global, project/reference → project.
+        type: Memory type — 'user' | 'feedback' | 'project' | 'reference'.
+              Drives auto-scope and recall priority. Default: 'project'.
+        why: The reason this matters — a hidden constraint, past incident, or
+             strong preference that justifies this memory existing.
+        how_to_apply: Concrete guidance on when/how to use this memory.
+                      Injected prominently in recall for feedback/user types.
+        description: One-line summary for index display.
     """
     if not content or not content.strip():
         return "Content cannot be empty."
     if len(content.strip()) < 10:
         n = len(content.strip())
         return f"Content too short ({n} chars, min 10). Be specific and actionable."
-    if len(content) > _MEM_SAVE_MAX_CHARS:
+    if type not in _VALID_TYPES:
+        return f"Invalid type '{type}'. Use: user, feedback, project, reference."
+
+    # Auto-derive scope from type if not explicitly provided
+    if scope is None:
+        scope = "global" if type in _GLOBAL_TYPES else "project"
+    elif scope not in ("project", "global"):
+        return f"Invalid scope '{scope}'. Use 'project' or 'global'."
+
+    # Typed memories get a more generous limit; raw root-level saves stay tight
+    char_limit = (
+        _MEM_SAVE_MAX_CHARS_TYPED if (section or type != "project") else _MEM_SAVE_MAX_CHARS
+    )
+    if len(content) > char_limit:
         return (
-            f"Content too long ({len(content)} chars, max {_MEM_SAVE_MAX_CHARS}). "
+            f"Content too long ({len(content)} chars, max {char_limit}). "
             "Distill to one actionable sentence or short paragraph. "
             "Good: 'Deploy with uv publish --token $TOKEN; token in 1Password.' "
             "Bad: pasting README sections, code blocks, or full file contents."
         )
-    if scope not in ("project", "global"):
-        return f"Invalid scope '{scope}'. Use 'project' (default) or 'global'."
 
     store = get_store()
     try:
@@ -424,6 +450,10 @@ def mem_save(
             project=project,
             section=section,
             scope=scope,
+            type=type,
+            why=why,
+            how_to_apply=how_to_apply,
+            description=description,
         )
 
         if result is None:
@@ -497,9 +527,9 @@ def mem_update(
     if len(content.strip()) < 10:
         n = len(content.strip())
         return f"Content too short ({n} chars, min 10). Be specific and actionable."
-    if len(content) > _MEM_SAVE_MAX_CHARS:
+    if len(content) > _MEM_SAVE_MAX_CHARS_TYPED:
         return (
-            f"Content too long ({len(content)} chars, max {_MEM_SAVE_MAX_CHARS}). "
+            f"Content too long ({len(content)} chars, max {_MEM_SAVE_MAX_CHARS_TYPED}). "
             "Distill to one actionable sentence or short paragraph."
         )
     if scope is not None and scope not in ("project", "global"):

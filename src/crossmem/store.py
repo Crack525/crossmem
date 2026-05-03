@@ -27,6 +27,10 @@ class Memory:
     keywords: str = field(default="")
     scope: str = field(default="project")
     last_verified: str | None = field(default=None)
+    type: str = field(default="project")
+    why: str = field(default="")
+    how_to_apply: str = field(default="")
+    description: str = field(default="")
 
     @property
     def snippet(self) -> str:
@@ -193,6 +197,7 @@ class MemoryStore:
         (4, None),  # sentinel — handled by _run_migration_4()
         (5, None),  # sentinel — handled by _run_migration_5()
         (6, None),  # sentinel — handled by _run_migration_6()
+        (7, None),  # sentinel — handled by _run_migration_7()
     ]
 
     def _init_schema(self) -> None:
@@ -218,6 +223,8 @@ class MemoryStore:
                         self._run_migration_5()
                     elif version == 6:
                         self._run_migration_6()
+                    elif version == 7:
+                        self._run_migration_7()
                     else:
                         raise RuntimeError(f"Unsupported migration sentinel: {version}")
                 else:
@@ -318,6 +325,21 @@ class MemoryStore:
                 value TEXT NOT NULL
             );
         """)
+
+    def _run_migration_7(self) -> None:
+        """Idempotent migration: add type, why, how_to_apply, description columns."""
+        cols = {row[1] for row in self.db.execute("PRAGMA table_info(memories)").fetchall()}
+        for col, default in [
+            ("type", "project"),
+            ("why", ""),
+            ("how_to_apply", ""),
+            ("description", ""),
+        ]:
+            if col not in cols:
+                self.db.execute(
+                    f"ALTER TABLE memories ADD COLUMN {col} TEXT NOT NULL DEFAULT '{default}'"
+                )
+        self.db.commit()
 
     # -- Vector (embeddings) backend ---------------------------------------
 
@@ -531,6 +553,7 @@ class MemoryStore:
         return results
 
     def _row_to_memory(self, row: sqlite3.Row) -> Memory:
+        keys = row.keys()
         return Memory(
             id=row["id"],
             content=row["content"],
@@ -542,7 +565,13 @@ class MemoryStore:
             keywords=row["keywords"],
             scope=row["scope"],
             last_verified=row["last_verified"],
+            type=row["type"] if "type" in keys else "project",
+            why=row["why"] if "why" in keys else "",
+            how_to_apply=row["how_to_apply"] if "how_to_apply" in keys else "",
+            description=row["description"] if "description" in keys else "",
         )
+
+    _VALID_TYPES: frozenset[str] = frozenset({"user", "feedback", "project", "reference"})
 
     def add(
         self,
@@ -551,6 +580,10 @@ class MemoryStore:
         project: str,
         section: str = "",
         scope: str = "project",
+        type: str = "project",
+        why: str = "",
+        how_to_apply: str = "",
+        description: str = "",
     ) -> int | None:
         """Add a memory. Returns id if new, None if duplicate."""
         if not isinstance(content, str) or not content.strip():
@@ -561,15 +594,20 @@ class MemoryStore:
         section = (section or "").strip()
         if scope not in ("project", "global"):
             scope = "project"
+        if type not in self._VALID_TYPES:
+            type = "project"
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         keywords = self._expand_keywords(content)
         try:
             cursor = self.db.execute(
                 """INSERT INTO memories
                    (content, source_file, project, section, content_hash, keywords, scope,
-                    last_verified)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
-                (content, source_file, project, section, content_hash, keywords, scope),
+                    last_verified, type, why, how_to_apply, description)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)""",
+                (
+                    content, source_file, project, section, content_hash, keywords, scope,
+                    type, why, how_to_apply, description,
+                ),
             )
             self.db.commit()
             new_id = cursor.lastrowid
@@ -586,6 +624,10 @@ class MemoryStore:
         project: str,
         section: str = "",
         scope: str = "project",
+        type: str = "project",
+        why: str = "",
+        how_to_apply: str = "",
+        description: str = "",
     ) -> int | None:
         """Add or update a memory. Matches on (project, section, source_file).
 
@@ -608,13 +650,20 @@ class MemoryStore:
                 return None
             content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
             keywords = self._expand_keywords(content)
+            if type not in self._VALID_TYPES:
+                type = "project"
             try:
                 self.db.execute(
                     """UPDATE memories
                        SET content = ?, content_hash = ?, keywords = ?,
-                           last_verified = CURRENT_TIMESTAMP
+                           last_verified = CURRENT_TIMESTAMP,
+                           type = ?, why = ?, how_to_apply = ?, description = ?
                        WHERE id = ?""",
-                    (content, content_hash, keywords, row["id"]),
+                    (
+                        content, content_hash, keywords,
+                        type, why, how_to_apply, description,
+                        row["id"],
+                    ),
                 )
                 self.db.commit()
                 self.embed_memory(row["id"])
@@ -623,7 +672,10 @@ class MemoryStore:
                 # New content_hash already exists for this project — treat as no-op
                 return None
 
-        return self.add(content, source_file, project, section, scope)
+        return self.add(
+            content, source_file, project, section, scope,
+            type, why, how_to_apply, description,
+        )
 
     def search(
         self,
