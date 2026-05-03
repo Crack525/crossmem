@@ -606,7 +606,7 @@ class MemoryStore:
                     continue
                 if scope == "global" and mem_row["scope"] == "global":
                     return int(mem_row["id"])
-                if scope == "project" and mem_row["project"] == project:
+                if scope in ("project", "wip") and mem_row["project"] == project:
                     return int(mem_row["id"])
         except Exception:
             pass
@@ -746,7 +746,7 @@ class MemoryStore:
         if not project:
             raise ValueError("project cannot be empty")
         section = (section or "").strip()
-        if scope not in ("project", "global"):
+        if scope not in ("project", "global", "wip"):
             scope = "project"
         if type not in self._VALID_TYPES:
             type = "project"
@@ -1238,6 +1238,23 @@ class MemoryStore:
         ).fetchall()
         return [self._row_to_memory(row) for row in rows]
 
+    def get_wip_memories(self, project: str) -> list[Memory]:
+        """Return WIP-scoped memories for a project, newest first."""
+        rows = self.db.execute(
+            "SELECT * FROM memories WHERE project = ? AND scope = 'wip' ORDER BY created_at DESC",
+            (project,),
+        ).fetchall()
+        return [self._row_to_memory(row) for row in rows]
+
+    def demote_wip_memories(self, project: str) -> int:
+        """Demote all WIP memories for a project to project scope. Returns count demoted."""
+        cursor = self.db.execute(
+            "UPDATE memories SET scope = 'project' WHERE project = ? AND scope = 'wip'",
+            (project,),
+        )
+        self.db.commit()
+        return cursor.rowcount
+
     def get_shared_sections(self, project: str, limit: int = 20) -> list[Memory]:
         """Get memories from other projects that share section names with this project."""
         limit = max(0, limit)
@@ -1265,7 +1282,7 @@ class MemoryStore:
         """Update a memory in place. Returns True if updated."""
         if not isinstance(content, str) or not content.strip():
             return False
-        if scope is not None and scope not in ("project", "global"):
+        if scope is not None and scope not in ("project", "global", "wip"):
             return False
 
         mem = self.get(memory_id)
@@ -1398,7 +1415,8 @@ class MemoryStore:
         placeholders = ",".join("?" * len(hashes))
         cursor = self.db.execute(
             f"UPDATE memories SET scope = 'global'"
-            f" WHERE content_hash IN ({placeholders}) AND source_file = 'mcp:mem_save'",
+            f" WHERE content_hash IN ({placeholders})"
+            f" AND source_file = 'mcp:mem_save' AND scope = 'project'",
             hashes,
         )
         if cursor.rowcount:

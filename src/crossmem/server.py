@@ -192,7 +192,12 @@ def _injection_summary(memories: list) -> str:
     parts: list[str] = []
     for key, count in type_scope.most_common():
         mem_type, mem_scope, mem_project = key.split("|", 2)
-        label = f"[{mem_project}]" if mem_scope == "project" and mem_project else "[global]"
+        if mem_scope == "wip":
+            label = f"[WIP:{mem_project}]" if mem_project else "[WIP]"
+        elif mem_scope == "project" and mem_project:
+            label = f"[{mem_project}]"
+        else:
+            label = "[global]"
         parts.append(f"{count} {mem_type} {label}")
 
     total = len(memories)
@@ -424,6 +429,9 @@ def mem_recall(
             lines.append(_SESSION_FOOTER)
             return "\n".join(lines)
 
+        # Grab WIP carry-overs before project memories (shown first, demoted after render)
+        wip_memories = store.get_wip_memories(project)
+
         # Get project-specific memories from the store
         project_memories = _dedup_memories(store.get_by_project(project))
 
@@ -431,6 +439,10 @@ def mem_recall(
         if not project_memories and has_project_docs(project_dir):
             ingest_project_docs(store, project_dir, project=project)
             project_memories = _dedup_memories(store.get_by_project(project))
+
+        # Exclude WIP memories from the regular project block (they're listed above)
+        wip_ids = {m.id for m in wip_memories}
+        project_memories = [m for m in project_memories if m.id not in wip_ids]
 
         # Get globally scoped memories (cross-project patterns)
         seen_project_hashes = {m.content_hash for m in project_memories if m.content_hash}
@@ -440,9 +452,17 @@ def mem_recall(
             if m.content_hash not in seen_project_hashes
         ]
 
-        all_mems = list(project_memories) + list(shared_memories)
+        all_mems = list(wip_memories) + list(project_memories) + list(shared_memories)
         summary_line = _injection_summary(all_mems)
         lines = [summary_line, ""] if summary_line else []
+
+        if wip_memories:
+            lines.append(f"## [WIP] Carry-over from last session ({len(wip_memories)}):\n")
+            for mem in wip_memories:
+                lines.extend(_format_memory_line(mem, cwd))
+            lines.append("")
+            # Auto-demote so they surface as regular memories in subsequent recalls
+            store.demote_wip_memories(project)
 
         if project_memories:
             lines.append(f"## {project} memories ({len(project_memories)}):\n")
@@ -492,8 +512,10 @@ def mem_save(
         section: Category heading (e.g. "Security", "Architecture", "Gotchas")
         project: Project name (auto-detected from cwd if omitted)
         cwd: Working directory for auto-detection (defaults to os.getcwd())
-        scope: 'project' or 'global'. Auto-derived from type if omitted:
+        scope: 'project', 'global', or 'wip'. Auto-derived from type if omitted:
                user/feedback → global, project/reference → project.
+               Use 'wip' for carry-over context (shown first at session start,
+               then auto-demoted to 'project' scope after first recall).
         type: Memory type — 'user' | 'feedback' | 'project' | 'reference'.
               Drives auto-scope and recall priority. Default: 'project'.
         why: The reason this matters — a hidden constraint, past incident, or
@@ -513,8 +535,8 @@ def mem_save(
     # Auto-derive scope from type if not explicitly provided
     if scope is None:
         scope = "global" if type in _GLOBAL_TYPES else "project"
-    elif scope not in ("project", "global"):
-        return f"Invalid scope '{scope}'. Use 'project' or 'global'."
+    elif scope not in ("project", "global", "wip"):
+        return f"Invalid scope '{scope}'. Use 'project', 'global', or 'wip'."
 
     # Typed memories get a more generous limit; raw root-level saves stay tight
     char_limit = (
@@ -629,7 +651,7 @@ def mem_update(
         content: The new content (replaces the old content entirely)
         section: New section/category (keeps current if omitted)
         project: New project name (keeps current if omitted)
-        scope: 'project' or 'global' — use to promote/demote scope (keeps current if omitted)
+        scope: 'project', 'global', or 'wip' — use to change scope (keeps current if omitted)
     """
     if not content or not content.strip():
         return "Content cannot be empty."
@@ -641,8 +663,8 @@ def mem_update(
             f"Content too long ({len(content)} chars, max {_MEM_SAVE_MAX_CHARS_TYPED}). "
             "Distill to one actionable sentence or short paragraph."
         )
-    if scope is not None and scope not in ("project", "global"):
-        return f"Invalid scope '{scope}'. Use 'project' or 'global'."
+    if scope is not None and scope not in ("project", "global", "wip"):
+        return f"Invalid scope '{scope}'. Use 'project', 'global', or 'wip'."
 
     store = get_store()
     try:

@@ -2,6 +2,44 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.9.0] — 2026-05-03
+
+### Added
+
+**WIP memory scope — carry-over context between sessions**
+
+`mem_save(..., scope="wip")` marks a memory as in-progress work that should surface prominently at the next session start and then quietly convert to a regular project memory.
+
+- New `scope="wip"` accepted by `mem_save` and `mem_update` (alongside `"project"` and `"global"`)
+- `mem_recall` (session-start, no query) shows a `## [WIP] Carry-over from last session` block at the very top — before project memories and global patterns
+- After rendering the WIP block, memories are automatically demoted to `scope="project"` so they don't clutter every subsequent recall
+- Near-duplicate detection treats WIP the same as project scope (within-project boundary)
+- `MemoryStore.get_wip_memories(project)` and `MemoryStore.demote_wip_memories(project)` added to the public store API
+
+Designed for the LLM agent workflow: save a WIP memory at the end of a session to leave a note for the next session, without polluting the permanent memory store.
+
+**Relevance scores in `mem_recall` output**
+
+Query-scoped `mem_recall(query=...)` now annotates each result with a normalized relevance score (`[rel: XX%]`), giving the agent an at-a-glance signal of match quality.
+
+- Score is normalized from the raw FTS5 BM25 rank or vector cosine distance to a 0–1 range via `min(1.0, abs(rank))`
+- Displayed inline on the memory line: e.g. `[rel: 87%]`
+- Full-session recall (no query) is unaffected — all memories surface, no scoring needed
+
+**Rank field in injection log**
+
+`~/.tokenxray/memory_injections.jsonl` now includes `"rank"` per injected memory entry, enabling `tokenxray --memory-impact` to weight hit-rate analysis by match strength.
+
+### Documented
+
+**Content length limits** (in code since v1.8.0, now documented)
+
+`mem_save` enforces two limits to keep memories concise and actionable:
+- **1000 chars** — root-level, untyped saves (`section=""` and `type="project"`)
+- **2000 chars** — typed or sectioned memories (`section != ""` or `type != "project"`)
+
+---
+
 ## [1.8.0] — 2026-05-03
 
 ### Added
