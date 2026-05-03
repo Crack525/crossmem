@@ -114,7 +114,9 @@ class TestIngestClaudeMemory:
 
 class TestParseFrontmatter:
     def test_extracts_all_fields(self) -> None:
-        content = "---\nname: Test\ntype: feedback\ndescription: A test memory\n---\nBody text here."
+        content = (
+            "---\nname: Test\ntype: feedback\ndescription: A test memory\n---\nBody text here."
+        )
         fields, body = parse_frontmatter(content)
         assert fields["type"] == "feedback"
         assert fields["description"] == "A test memory"

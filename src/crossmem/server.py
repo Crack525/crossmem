@@ -49,6 +49,7 @@ def _write_backing_file(
     lines += ["---", "", content]
     path.write_text("\n".join(lines), encoding="utf-8")
 
+
 _ingested: bool = False
 _ingest_lock = threading.Lock()
 
@@ -118,8 +119,7 @@ def _format_memory_line(mem, cwd: str | None = None) -> list[str]:
     section = f" / {mem.section}" if mem.section else ""
     type_tag = f" [{mem.type}]" if getattr(mem, "type", "project") != "project" else ""
     line = (
-        f"- (id: {mem.id}) {_status(mem, cwd)}"
-        f" **{mem.project}{section}**{type_tag}: {mem.snippet}"
+        f"- (id: {mem.id}) {_status(mem, cwd)} **{mem.project}{section}**{type_tag}: {mem.snippet}"
     )
     lines = [line]
     how_to_apply = getattr(mem, "how_to_apply", "")
@@ -382,7 +382,9 @@ def mem_recall(
                 all_mems = list(project_memories) + list(shared_memories)
                 summary_line = _injection_summary(all_mems)
                 lines = [summary_line, ""] if summary_line else []
-                lines.append(f'_(No scoped results for "{query}". Showing all {project} memories.)_\n')
+                lines.append(
+                    f'_(No scoped results for "{query}". Showing all {project} memories.)_\n'
+                )
                 if project_memories:
                     lines.append(f"## {project} memories ({len(project_memories)}):\n")
                     for mem in project_memories:
@@ -722,8 +724,7 @@ def mem_forget(memory_id: int) -> str:
 
         return (
             f"Deleted memory {memory_id}: "
-            f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
-            + blast_warning
+            f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}" + blast_warning
         )
     finally:
         store.close()
@@ -951,7 +952,8 @@ def mem_deduplicate(
                 f"KEEP  [{keeper.id}] ({keeper.project}/{keeper.section}): {keeper_snippet}"
             )
             lines.append(
-                f"  DUP [{dup.id}] ({dup.project}/{dup.section}, dist={distance:.4f}): {dup_snippet}"
+                f"  DUP [{dup.id}] ({dup.project}/{dup.section},"
+                f" dist={distance:.4f}): {dup_snippet}"
             )
 
             if not dry_run:

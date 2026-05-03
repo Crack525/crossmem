@@ -575,9 +575,7 @@ class MemoryStore:
     _VALID_TYPES: frozenset[str] = frozenset({"user", "feedback", "project", "reference"})
     _COSINE_DEDUP_THRESHOLD: float = 0.05  # distance < 0.05 ≈ similarity > 0.95
 
-    def _find_near_duplicate(
-        self, content: str, scope: str, project: str
-    ) -> int | None:
+    def _find_near_duplicate(self, content: str, scope: str, project: str) -> int | None:
         """Return ID of a near-identical existing memory, or None.
 
         Uses cosine distance < _COSINE_DEDUP_THRESHOLD. Only runs when
@@ -699,8 +697,8 @@ class MemoryStore:
 
                 nb_row = self.db.execute(
                     "SELECT id, content, source_file, project, section, content_hash, "
-                    "created_at, keywords, scope, last_verified, type, why, how_to_apply, description "
-                    "FROM memories WHERE id = ?",
+                    "created_at, keywords, scope, last_verified, type, why, "
+                    "how_to_apply, description FROM memories WHERE id = ?",
                     (nb_id,),
                 ).fetchone()
                 if not nb_row:
@@ -773,8 +771,17 @@ class MemoryStore:
                     last_verified, type, why, how_to_apply, description)
                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)""",
                 (
-                    content, source_file, project, section, content_hash, keywords, scope,
-                    type, why, how_to_apply, description,
+                    content,
+                    source_file,
+                    project,
+                    section,
+                    content_hash,
+                    keywords,
+                    scope,
+                    type,
+                    why,
+                    how_to_apply,
+                    description,
                 ),
             )
             self.db.commit()
@@ -828,8 +835,13 @@ class MemoryStore:
                            type = ?, why = ?, how_to_apply = ?, description = ?
                        WHERE id = ?""",
                     (
-                        content, content_hash, keywords,
-                        type, why, how_to_apply, description,
+                        content,
+                        content_hash,
+                        keywords,
+                        type,
+                        why,
+                        how_to_apply,
+                        description,
                         row["id"],
                     ),
                 )
@@ -841,8 +853,15 @@ class MemoryStore:
                 return None
 
         return self.add(
-            content, source_file, project, section, scope,
-            type, why, how_to_apply, description,
+            content,
+            source_file,
+            project,
+            section,
+            scope,
+            type,
+            why,
+            how_to_apply,
+            description,
         )
 
     def search(
@@ -1279,14 +1298,6 @@ class MemoryStore:
             "UPDATE memories SET last_verified = CURRENT_TIMESTAMP WHERE id = ?",
             (memory_id,),
         )
-        self.db.commit()
-        return cursor.rowcount > 0
-
-    def delete(self, memory_id: int) -> bool:
-        """Delete a memory by ID. Returns True if deleted."""
-        cursor = self.db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
-        if cursor.rowcount > 0 and self._vec_available:
-            self.db.execute("DELETE FROM vec_memories WHERE rowid = ?", (memory_id,))
         self.db.commit()
         return cursor.rowcount > 0
 
