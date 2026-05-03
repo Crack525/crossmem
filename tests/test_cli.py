@@ -1207,6 +1207,10 @@ class TestPromptSearch:
             "backend-api",
             "Security",
         )
+        store.add("Docker sidecar logging pattern", "mcp:mem_save", "infra", "Deploy")
+        store.add("Use pytest fixtures for test isolation", "mcp:mem_save", "proj", "Testing")
+        store.add("Redis cache invalidation on write", "mcp:mem_save", "proj", "Caching")
+        store.add("JWT tokens rotated on each login", "mcp:mem_save", "backend-api", "Auth")
         store.close()
 
         hook_input = json.dumps({"prompt": "credential masking middleware"})
@@ -1273,6 +1277,10 @@ class TestPromptSearch:
         db_path = tmp_path / "test.db"
         store = MemoryStore(db_path=db_path)
         store.add("JWT tokens rotated on each use", "mcp:mem_save", "backend-api", "Auth")
+        store.add("Docker sidecar logging pattern", "mcp:mem_save", "infra", "Deploy")
+        store.add("Redis cache invalidation on write", "mcp:mem_save", "proj", "Caching")
+        store.add("Always mask credentials in middleware", "mcp:mem_save", "proj", "Security")
+        store.add("Use pytest fixtures for test isolation", "mcp:mem_save", "proj", "Testing")
         store.close()
 
         hook_input = json.dumps({"prompt": "how do we rotate JWT tokens in our auth"})
@@ -1292,6 +1300,10 @@ class TestPromptSearch:
         db_path = tmp_path / "test.db"
         store = MemoryStore(db_path=db_path)
         store.add("Always rotate credentials quarterly", "mcp:mem_save", "proj", "Security")
+        store.add("Docker sidecar logging pattern", "mcp:mem_save", "infra", "Deploy")
+        store.add("Redis cache invalidation on write", "mcp:mem_save", "proj", "Caching")
+        store.add("JWT tokens rotated on each login", "mcp:mem_save", "backend-api", "Auth")
+        store.add("Use pytest fixtures for test isolation", "mcp:mem_save", "proj", "Testing")
         store.close()
 
         hook_input = json.dumps({"prompt": "how do we rotate credentials?"})

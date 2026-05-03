@@ -31,6 +31,47 @@ def _freshness(last_verified: str | None) -> str:
     return f"[verified: {last_verified[:10]}]"
 
 
+# Matches file paths in memory content: e.g. src/foo/bar.py, tests/test_x.py, ~/.claude/...
+_FILE_REF_RE = re.compile(r"(?:src|tests?|~)/[\w./\-]+\.(?:py|md|toml|json|yaml|yml|sh)")
+
+
+def _stale_check(source_file: str | None, content: str, cwd: str | None) -> str | None:
+    """Return a stale label if the source file or content-referenced files no longer exist.
+
+    Checks two things:
+    1. source_file — the file this memory was ingested from (absolute or relative to cwd)
+    2. File path patterns in content (src/..., tests/..., ~/.../...) checked against cwd
+
+    Returns '[stale: <reason>]' or None.
+    """
+    base = Path(cwd) if cwd else None
+
+    if source_file:
+        p = Path(source_file).expanduser()
+        if not p.is_absolute() and base:
+            p = base / p
+        if not p.exists():
+            return "[stale: source file not found]"
+
+    if base:
+        for match in _FILE_REF_RE.findall(content):
+            p = Path(match).expanduser()
+            if not p.is_absolute():
+                p = base / p
+            if not p.exists():
+                return f"[stale: {match} not found]"
+
+    return None
+
+
+def _status(mem, cwd: str | None = None) -> str:
+    """Return [stale: ...] if detectable, else the freshness label."""
+    stale = _stale_check(mem.source_file, mem.content, cwd)
+    if stale:
+        return stale
+    return _freshness(mem.last_verified)
+
+
 _SESSION_FOOTER = (
     "_During this session: call mem_save() for any decision, gotcha, or pattern worth keeping. "
     "Call mem_update(id=...) to correct an existing memory rather than saving a duplicate._"
@@ -209,7 +250,7 @@ def mem_recall(
                     for mem in project_memories:
                         section = f" / {mem.section}" if mem.section else ""
                         lines.append(
-                            f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                            f"- (id: {mem.id}) {_status(mem, cwd)}"
                             f" **{mem.project}{section}**: {mem.snippet}"
                         )
                     lines.append("")
@@ -220,8 +261,7 @@ def mem_recall(
                     for mem in shared_memories:
                         label = f"{mem.project} / {mem.section}" if mem.section else mem.project
                         lines.append(
-                            f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
-                            f" **{label}**: {mem.snippet}"
+                            f"- (id: {mem.id}) {_status(mem, cwd)} **{label}**: {mem.snippet}"
                         )
                     lines.append("")
                 lines.append(_SESSION_FOOTER)
@@ -232,7 +272,7 @@ def mem_recall(
                 mem = result.memory
                 section = f" / {mem.section}" if mem.section else ""
                 lines.append(
-                    f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                    f"- (id: {mem.id}) {_status(mem, cwd)}"
                     f" **{mem.project}{section}**: {mem.snippet}"
                 )
             lines.append("")
@@ -268,7 +308,7 @@ def mem_recall(
             for mem in project_memories:
                 section = f" / {mem.section}" if mem.section else ""
                 lines.append(
-                    f"- (id: {mem.id}) {_freshness(mem.last_verified)}"
+                    f"- (id: {mem.id}) {_status(mem, cwd)}"
                     f" **{mem.project}{section}**: {mem.snippet}"
                 )
             lines.append("")
@@ -279,9 +319,7 @@ def mem_recall(
             )
             for mem in shared_memories:
                 label = f"{mem.project} / {mem.section}" if mem.section else mem.project
-                lines.append(
-                    f"- (id: {mem.id}) {_freshness(mem.last_verified)} **{label}**: {mem.snippet}"
-                )
+                lines.append(f"- (id: {mem.id}) {_status(mem, cwd)} **{label}**: {mem.snippet}")
             lines.append("")
 
         if not lines:
