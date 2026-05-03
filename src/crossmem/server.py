@@ -65,11 +65,13 @@ def _stale_check(source_file: str | None, content: str, cwd: str | None) -> str 
 
 
 def _status(mem, cwd: str | None = None) -> str:
-    """Return [stale: ...] if detectable, else the freshness label."""
+    """Return [stale: ...] if detectable, else the freshness label, plus save date."""
     stale = _stale_check(mem.source_file, mem.content, cwd)
+    date = mem.created_at[:10] if getattr(mem, "created_at", None) else None
+    date_tag = f" [saved: {date}]" if date else ""
     if stale:
-        return stale
-    return _freshness(mem.last_verified)
+        return stale + date_tag
+    return _freshness(mem.last_verified) + date_tag
 
 
 _SESSION_FOOTER = (

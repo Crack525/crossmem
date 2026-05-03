@@ -520,7 +520,11 @@ class MemoryStore:
             return self.search_vector(query, limit=limit, project=project, scope=scope)
         if mode == "hybrid":
             return self.search_hybrid(query, limit=limit, project=project, scope=scope)
-        return self.search_expanded(query, limit=limit, project=project, scope=scope)
+        results = self.search_expanded(query, limit=limit, project=project, scope=scope)
+        # Silent fallback: FTS returned nothing but embeddings backend is available — try ANN
+        if not results and self._vec_available:
+            return self.search_vector(query, limit=limit, project=project, scope=scope)
+        return results
 
     def _row_to_memory(self, row: sqlite3.Row) -> Memory:
         return Memory(
