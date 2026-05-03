@@ -31,6 +31,7 @@ PROMPT_SEARCH_BUDGET = 4000
 # FTS5 BM25 rank is negative; values near 0 are weak matches.
 # Only inject results with rank at or below this threshold.
 PROMPT_SEARCH_MIN_RANK: float = -0.1
+_INJECTION_LOG = Path.home() / ".tokenxray" / "memory_injections.jsonl"
 
 HOOK_META_WORDS = {
     "recall",
@@ -448,6 +449,25 @@ def recall(project: str | None, limit: int, budget: int, query: str | None, fmt:
         click.echo(output)
 
 
+def _log_injections(results, cwd: str, project: str | None) -> None:
+    """Append one injection record to ~/.tokenxray/memory_injections.jsonl."""
+    try:
+        _INJECTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.datetime.now(datetime.UTC).isoformat(),
+            "cwd": cwd,
+            "project": project or "",
+            "memories": [
+                {"id": r.memory.id, "keywords": r.memory.section or "", "snippet": r.memory.snippet}
+                for r in results
+            ],
+        }
+        with _INJECTION_LOG.open("a") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
 @click.command(name="prompt-search")
 def prompt_search() -> None:
     """Search memories based on the user's prompt (for UserPromptSubmit hook).
@@ -513,6 +533,8 @@ def prompt_search() -> None:
         results = [r for r in results if r.rank <= PROMPT_SEARCH_MIN_RANK]
         if not results:
             return
+
+        _log_injections(results, cwd=hook_input.get("cwd") or os.getcwd(), project=current_project)
 
         lines = ["# crossmem: relevant memories"]
         used = len(lines[0]) + 1

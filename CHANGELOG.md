@@ -2,6 +2,20 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.5.0] — 2026-05-03
+
+### Added
+
+**Memory injection logging for hit-rate analysis**
+
+crossmem now logs every memory injection event so tokenxray can measure which memories the LLM actually uses.
+
+- Every `prompt-search` invocation that passes the relevance gate appends one JSON record to `~/.tokenxray/memory_injections.jsonl` — timestamp, cwd, project, and list of injected memory IDs + snippets
+- Enables `tokenxray --memory-impact` to correlate injected memories against subsequent assistant responses and report per-memory hit rates
+- Zero overhead when no matches pass the rank gate; write errors are silently ignored to never interrupt the hook
+
+---
+
 ## [1.4.0] — 2026-05-03
 
 ### Added
