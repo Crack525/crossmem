@@ -127,6 +127,55 @@ def _dedup_search_results(results: list) -> list:
     return out
 
 
+def _injection_summary(memories: list) -> str:
+    """One-line italicized header summarising injected memories for the LLM.
+
+    Format: _Context loaded: N memories — 3 feedback [global], 2 user [global],
+            3 project [tokenxray] · oldest: 2026-04-15_
+    """
+    from collections import Counter
+    from datetime import datetime
+
+    if not memories:
+        return ""
+
+    type_scope: Counter = Counter()
+    projects: dict[str, str] = {}  # type_scope_key → project label
+    dates: list[datetime] = []
+
+    for mem in memories:
+        mem_type = getattr(mem, "type", "project") or "project"
+        mem_scope = getattr(mem, "scope", "project") or "project"
+        mem_project = getattr(mem, "project", "") or ""
+        key = f"{mem_type}|{mem_scope}|{mem_project}"
+        type_scope[key] += 1
+        if mem_project:
+            projects[key] = mem_project
+
+        lv = getattr(mem, "last_verified", None)
+        if lv:
+            try:
+                dates.append(datetime.fromisoformat(lv))
+            except ValueError:
+                pass
+
+    parts: list[str] = []
+    for key, count in type_scope.most_common():
+        mem_type, mem_scope, mem_project = key.split("|", 2)
+        label = f"[{mem_project}]" if mem_scope == "project" and mem_project else "[global]"
+        parts.append(f"{count} {mem_type} {label}")
+
+    total = len(memories)
+    summary = f"_Context loaded: {total} memor{'y' if total == 1 else 'ies'}"
+    if parts:
+        summary += " — " + ", ".join(parts)
+    if dates:
+        oldest = min(dates).strftime("%Y-%m-%d")
+        summary += f" · oldest: {oldest}"
+    summary += "_"
+    return summary
+
+
 _MCP_RECALL_LIMIT: int = 10
 # Hard limit for mem_save content. Typed memories (section != "") get 2000 chars;
 # untyped root-level saves keep the tighter 1000-char limit.
@@ -273,6 +322,8 @@ def mem_recall(
                     global_mems = store.get_global_memories(limit=10)
                     if global_mems:
                         lines = [
+                            _injection_summary(global_mems),
+                            "",
                             f'Could not detect project from "{cwd}".',
                             f"Known projects: {', '.join(known)}",
                             "Pass an explicit project name to mem_recall(project=...).\n",
@@ -298,7 +349,10 @@ def mem_recall(
                     ingest_project_docs(store, project_dir, project=project)
                     project_memories = store.get_by_project(project)
                 shared_memories = store.get_global_memories(limit=20)
-                lines = [f'_(No scoped results for "{query}". Showing all {project} memories.)_\n']
+                all_mems = list(project_memories) + list(shared_memories)
+                summary_line = _injection_summary(all_mems)
+                lines = [summary_line, ""] if summary_line else []
+                lines.append(f'_(No scoped results for "{query}". Showing all {project} memories.)_\n')
                 if project_memories:
                     lines.append(f"## {project} memories ({len(project_memories)}):\n")
                     for mem in project_memories:
@@ -314,14 +368,19 @@ def mem_recall(
                 lines.append(_SESSION_FOOTER)
                 return "\n".join(lines)
 
-            lines = [f"## {project} memories (scoped: {query!r}):\n"]
+            seen_ids = {r.memory.id for r in results}
+            global_mems = store.get_global_memories(query=query, limit=5)
+            global_mems = [m for m in global_mems if m.id not in seen_ids]
+
+            all_mems = [r.memory for r in results] + global_mems
+            summary_line = _injection_summary(all_mems)
+            lines = [summary_line, ""] if summary_line else []
+
+            lines.append(f"## {project} memories (scoped: {query!r}):\n")
             for result in results:
                 lines.extend(_format_memory_line(result.memory, cwd))
             lines.append("")
 
-            seen_ids = {r.memory.id for r in results}
-            global_mems = store.get_global_memories(query=query, limit=5)
-            global_mems = [m for m in global_mems if m.id not in seen_ids]
             if global_mems:
                 lines.append(f"## Cross-project patterns (scoped: {query!r}):\n")
                 for mem in global_mems:
@@ -347,7 +406,9 @@ def mem_recall(
             if m.content_hash not in seen_project_hashes
         ]
 
-        lines = []
+        all_mems = list(project_memories) + list(shared_memories)
+        summary_line = _injection_summary(all_mems)
+        lines = [summary_line, ""] if summary_line else []
 
         if project_memories:
             lines.append(f"## {project} memories ({len(project_memories)}):\n")

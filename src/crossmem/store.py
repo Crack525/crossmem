@@ -393,8 +393,9 @@ class MemoryStore:
         vec = embeddings.embed(mem.content)
         if vec is None:
             return False
+        self.db.execute("DELETE FROM vec_memories WHERE rowid = ?", (memory_id,))
         self.db.execute(
-            "INSERT OR REPLACE INTO vec_memories(rowid, embedding) VALUES (?, ?)",
+            "INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)",
             (memory_id, vec),
         )
         self.db.commit()
@@ -645,11 +646,11 @@ class MemoryStore:
                 (content_hash,),
             ).fetchone()
             if existing:
-                return existing["id"]
+                return None  # already stored globally — no-op
         # Cosine near-dup dedup: avoid near-identical memories in same scope context
         near_dup_id = self._find_near_duplicate(content, scope, project)
         if near_dup_id is not None:
-            return near_dup_id
+            return None  # near-duplicate already exists — no-op
         try:
             cursor = self.db.execute(
                 """INSERT INTO memories

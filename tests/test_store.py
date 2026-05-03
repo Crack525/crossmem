@@ -40,8 +40,8 @@ class TestAdd:
         id1 = store.add("shared global rule", "f.md", "proj-a", scope="global")
         id2 = store.add("shared global rule", "f.md", "proj-b", scope="global")
         assert id1 is not None
-        # Second add should return existing id (dedup), not create a new entry
-        assert id2 == id1
+        # Second add returns None (no-op) — same content already exists globally
+        assert id2 is None
         assert store.count() == 1
 
     def test_project_scope_same_hash_still_allowed_in_different_projects(
