@@ -2,6 +2,20 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.6.0] — 2026-05-03
+
+### Changed
+
+**Fill-forward budget allocation — full memory content injected**
+
+- `_build_recall_output` (SessionStart recall) and `prompt_search` (UserPromptSubmit) both previously used `mem.snippet` — a hard 200-char cap — leaving ~2900 of the 4000-char budget unused per typical invocation
+- Both paths now use `mem.content.strip()` with fill-forward allocation: each memory gets up to the remaining budget, truncated at the last sentence boundary within that space (falling back to word boundary, then hard cut with `…`)
+- In practice: 5 memories with ~800-char bodies now consume ~3800 chars instead of ~1100, giving the LLM 3× more context per injection
+- Injection log snippet increased from 200 → 500 chars for better hit-rate keyword coverage in `tokenxray --memory-impact`
+- `snippet` property in `store.py` unchanged — still 200 chars for display in `crossmem list` and CLI output
+
+---
+
 ## [1.5.0] — 2026-05-03
 
 ### Added

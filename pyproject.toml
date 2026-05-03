@@ -1,6 +1,6 @@
 [project]
 name = "crossmem"
-version = "1.5.0"
+version = "1.6.0"
 description = "Cross-project memory for AI coding agents"
 readme = "README.md"
 authors = [

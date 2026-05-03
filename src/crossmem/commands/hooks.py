@@ -85,6 +85,23 @@ def _source_tier(source_file: str) -> int:
     return 2 + priority
 
 
+def _truncate_at_sentence(text: str, max_chars: int) -> str:
+    """Truncate text within max_chars, preferring a sentence boundary."""
+    if len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars]
+    # Prefer sentence-ending punctuation in the back half of the budget
+    for marker in (".", "!", "?", "\n"):
+        pos = truncated.rfind(marker)
+        if pos >= max_chars // 2:
+            return truncated[: pos + 1]
+    # Fall back to word boundary
+    pos = truncated.rfind(" ")
+    if pos >= max_chars // 2:
+        return truncated[:pos] + "…"
+    return truncated + "…"
+
+
 def _build_recall_output(
     project: str,
     project_memories: list,
@@ -92,7 +109,11 @@ def _build_recall_output(
     budget: int,
     note: str | None = None,
 ) -> str:
-    """Build recall output within a character budget, filling by tier."""
+    """Build recall output within a character budget, filling by tier.
+
+    Uses fill-forward allocation: each memory gets up to remaining budget,
+    truncated at a sentence boundary, so the budget is fully utilised.
+    """
     tiered = sorted(project_memories, key=lambda m: _source_tier(m.source_file))
 
     header_line = f"# crossmem: {project}\n"
@@ -103,9 +124,13 @@ def _build_recall_output(
 
     for mem in tiered:
         section = f" [{mem.section}]" if mem.section else ""
-        line = f"- {mem.snippet}{section}"
-        if used + len(line) + 1 > budget:
+        prefix = f"- "
+        suffix = section
+        remaining = budget - used - len(prefix) - len(suffix) - 1
+        if remaining <= 0:
             break
+        content = _truncate_at_sentence(mem.content.strip(), remaining)
+        line = f"{prefix}{content}{suffix}"
         lines.append(line)
         used += len(line) + 1
 
@@ -115,9 +140,12 @@ def _build_recall_output(
         lines.append(header)
         for mem in shared_memories:
             label = f"{mem.project}/{mem.section}" if mem.section else mem.project
-            line = f"- ({label}) {mem.snippet}"
-            if used + len(line) + 1 > budget:
+            prefix = f"- ({label}) "
+            remaining = budget - used - len(prefix) - 1
+            if remaining <= 0:
                 break
+            content = _truncate_at_sentence(mem.content.strip(), remaining)
+            line = f"{prefix}{content}"
             lines.append(line)
             used += len(line) + 1
 
@@ -458,7 +486,11 @@ def _log_injections(results, cwd: str, project: str | None) -> None:
             "cwd": cwd,
             "project": project or "",
             "memories": [
-                {"id": r.memory.id, "keywords": r.memory.section or "", "snippet": r.memory.snippet}
+                {
+                    "id": r.memory.id,
+                    "keywords": r.memory.section or "",
+                    "snippet": r.memory.content.strip()[:500],
+                }
                 for r in results
             ],
         }
@@ -541,10 +573,12 @@ def prompt_search() -> None:
         for r in results:
             mem = r.memory
             section = f" [{mem.section}]" if mem.section else ""
-            project = f"({mem.project})"
-            line = f"- {project}{section} {mem.snippet}"
-            if used + len(line) + 1 > PROMPT_SEARCH_BUDGET:
+            prefix = f"- ({mem.project}){section} "
+            remaining = PROMPT_SEARCH_BUDGET - used - len(prefix) - 1
+            if remaining <= 0:
                 break
+            content = _truncate_at_sentence(mem.content.strip(), remaining)
+            line = f"{prefix}{content}"
             lines.append(line)
             used += len(line) + 1
 
