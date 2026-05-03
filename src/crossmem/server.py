@@ -628,6 +628,9 @@ def mem_forget(memory_id: int) -> str:
     Use this to remove stale, wrong, or duplicate memories.
     Find the ID via mem_search first, then pass it here.
 
+    WARNING: Deleting a global-scope memory removes it from recall across ALL
+    projects. Use mem_demote first if you only want to narrow its scope.
+
     Args:
         memory_id: The ID of the memory to delete (shown in search results)
     """
@@ -637,10 +640,105 @@ def mem_forget(memory_id: int) -> str:
         if not mem:
             return f"Memory {memory_id} not found."
 
+        blast_warning = ""
+        if mem.scope == "global":
+            project_count = store.db.execute(
+                "SELECT COUNT(DISTINCT project) FROM memories WHERE scope = 'project'"
+            ).fetchone()[0]
+            blast_warning = (
+                f"\n\n⚠ GLOBAL MEMORY DELETED — this was visible across all projects "
+                f"({project_count} project(s) in store). "
+                "Consider mem_demote next time to narrow scope instead of deleting."
+            )
+
         store.delete(memory_id)
         return (
             f"Deleted memory {memory_id}: "
             f"{mem.project} / {mem.section or '(root)'} — {mem.snippet[:80]}"
+            + blast_warning
+        )
+    finally:
+        store.close()
+
+
+@mcp.tool()
+def mem_promote(memory_id: int) -> str:
+    """Promote a memory from project scope to global scope.
+
+    Global memories are injected into every mem_recall regardless of the active
+    project. Use this for rules, preferences, and patterns that apply universally
+    (e.g. 'always fix root cause, not symptoms', 'user prefers terse responses').
+
+    Do NOT promote project-specific implementation details — those belong in
+    project scope where they won't pollute other sessions.
+
+    Args:
+        memory_id: The ID of the memory to promote (find via mem_search)
+    """
+    store = get_store()
+    try:
+        mem = store.get(memory_id)
+        if not mem:
+            return f"Memory {memory_id} not found."
+        if mem.scope == "global":
+            return f"Memory {memory_id} is already global scope."
+
+        ok = store.update(
+            memory_id=memory_id,
+            content=mem.content,
+            section=mem.section,
+            project=mem.project,
+            scope="global",
+        )
+        if not ok:
+            return f"Failed to promote memory {memory_id}."
+
+        return (
+            f"Promoted memory {memory_id} to global scope: "
+            f"{mem.project} / {mem.section or '(root)'}\n"
+            f"This memory will now be injected in all projects' mem_recall."
+        )
+    finally:
+        store.close()
+
+
+@mcp.tool()
+def mem_demote(memory_id: int, project: str | None = None) -> str:
+    """Demote a memory from global scope to project scope.
+
+    Use this when a previously-global memory turns out to be project-specific,
+    or to narrow blast radius before deleting via mem_forget.
+
+    Args:
+        memory_id: The ID of the memory to demote (find via mem_search)
+        project: Target project name (defaults to the memory's existing project field)
+    """
+    store = get_store()
+    try:
+        mem = store.get(memory_id)
+        if not mem:
+            return f"Memory {memory_id} not found."
+        if mem.scope == "project":
+            return f"Memory {memory_id} is already project scope (project: {mem.project})."
+
+        target_project = (project or "").strip() or mem.project
+        if not target_project:
+            return "Cannot demote: no target project specified and memory has no project set."
+
+        ok = store.update(
+            memory_id=memory_id,
+            content=mem.content,
+            section=mem.section,
+            project=target_project,
+            scope="project",
+        )
+        if not ok:
+            return f"Failed to demote memory {memory_id}."
+
+        return (
+            f"Demoted memory {memory_id} to project scope: {target_project} / "
+            f"{mem.section or '(root)'}\n"
+            "This memory will only be injected when recalling for that project."
         )
     finally:
         store.close()
