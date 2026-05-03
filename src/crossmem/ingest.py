@@ -124,6 +124,32 @@ def extract_project_name(path: Path) -> str:
     return "-".join(meaningful).lower()
 
 
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+_WHY_RE = re.compile(r"\*\*Why:\*\*\s*(.+?)(?=\n\*\*|\Z)", re.DOTALL)
+_APPLY_RE = re.compile(r"\*\*How to apply:\*\*\s*(.+?)(?=\n\*\*|\Z)", re.DOTALL)
+_GLOBAL_TYPES: frozenset[str] = frozenset({"user", "feedback"})
+
+
+def parse_frontmatter(content: str) -> tuple[dict[str, str], str]:
+    """Extract YAML-like frontmatter from a markdown file.
+
+    Returns (fields_dict, body_without_frontmatter).
+    Simple key: value parser — no full YAML dependency.
+    """
+    match = _FRONTMATTER_RE.match(content)
+    if not match:
+        return {}, content
+
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" in line:
+            key, _, val = line.partition(":")
+            fields[key.strip()] = val.strip()
+
+    body = content[match.end():]
+    return fields, body
+
+
 def _strip_code_blocks(text: str) -> str:
     """Remove fenced code blocks — they inflate chunk size but rarely help text recall."""
     return re.sub(r"```[^`]*```", "", text, flags=re.DOTALL).strip()
@@ -447,20 +473,41 @@ def ingest_claude_memory(store: MemoryStore, base_path: Path | None = None) -> i
                 continue
 
         project = extract_project_name(md_file)
-        content = md_file.read_text(encoding="utf-8", errors="replace")
+        raw = md_file.read_text(encoding="utf-8", errors="replace")
 
-        if not content.strip():
+        if not raw.strip():
             continue
+
+        fm, content = parse_frontmatter(raw)
+
+        mem_type = fm.get("type", "project")
+        mem_description = fm.get("description", "")
+        mem_scope = "global" if mem_type in _GLOBAL_TYPES else "project"
+        # Extract why/how_to_apply from frontmatter or body prose
+        mem_why = fm.get("why", "")
+        mem_how_to_apply = fm.get("how_to_apply", "")
+        if not mem_why:
+            m = _WHY_RE.search(content)
+            if m:
+                mem_why = m.group(1).strip()
+        if not mem_how_to_apply:
+            m = _APPLY_RE.search(content)
+            if m:
+                mem_how_to_apply = m.group(1).strip()
 
         sections = parse_markdown_sections(content)
 
         if not sections:
-            # No sections found — store the whole file as one memory
             result = store.upsert(
                 content=content.strip(),
                 source_file=str(md_file),
                 project=project,
                 section="",
+                scope=mem_scope,
+                type=mem_type,
+                why=mem_why,
+                how_to_apply=mem_how_to_apply,
+                description=mem_description,
             )
             if result is not None:
                 added += 1
@@ -471,6 +518,11 @@ def ingest_claude_memory(store: MemoryStore, base_path: Path | None = None) -> i
                     source_file=str(md_file),
                     project=project,
                     section=heading,
+                    scope=mem_scope,
+                    type=mem_type,
+                    why=mem_why,
+                    how_to_apply=mem_how_to_apply,
+                    description=mem_description,
                 )
                 if result is not None:
                     added += 1

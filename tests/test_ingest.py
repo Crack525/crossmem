@@ -12,6 +12,7 @@ from crossmem.ingest import (
     ingest_copilot_memory,
     ingest_gemini_memory,
     ingest_project_docs,
+    parse_frontmatter,
     parse_markdown_sections,
 )
 from crossmem.store import MemoryStore
@@ -109,6 +110,64 @@ class TestIngestClaudeMemory:
         second = ingest_claude_memory(store, base_path=tmp_path / ".claude/projects")
         assert first == 1
         assert second == 0
+
+
+class TestParseFrontmatter:
+    def test_extracts_all_fields(self) -> None:
+        content = "---\nname: Test\ntype: feedback\ndescription: A test memory\n---\nBody text here."
+        fields, body = parse_frontmatter(content)
+        assert fields["type"] == "feedback"
+        assert fields["description"] == "A test memory"
+        assert body.strip() == "Body text here."
+
+    def test_no_frontmatter_returns_empty(self) -> None:
+        content = "# Section\nJust body content."
+        fields, body = parse_frontmatter(content)
+        assert fields == {}
+        assert body == content
+
+    def test_type_defaults_missing(self) -> None:
+        content = "---\nname: X\n---\nBody."
+        fields, _ = parse_frontmatter(content)
+        assert fields.get("type", "project") == "project"
+
+
+class TestIngestClaudeMemoryFrontmatter:
+    def test_type_stored_from_frontmatter(self, tmp_path: Path) -> None:
+        proj_dir = tmp_path / ".claude/projects/-Users-test-myproject/memory"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "feedback_test.md").write_text(
+            "---\nname: Test feedback\ntype: feedback\ndescription: Test\n---\n"
+            "Always run tests before committing. "
+            "This is a long enough body to pass the section filter.\n\n"
+            "**Why:** Caught regressions in production previously.\n"
+            "**How to apply:** Before every git commit.\n"
+        )
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        added = ingest_claude_memory(store, base_path=tmp_path / ".claude/projects")
+        assert added >= 1
+        results = store.search("tests before committing")
+        assert results
+        mem = results[0].memory
+        assert mem.type == "feedback"
+        assert mem.scope == "global"
+        assert "regressions" in mem.how_to_apply or mem.how_to_apply != ""
+
+    def test_user_type_gets_global_scope(self, tmp_path: Path) -> None:
+        proj_dir = tmp_path / ".claude/projects/-Users-test-myproject/memory"
+        proj_dir.mkdir(parents=True)
+        (proj_dir / "user_role.md").write_text(
+            "---\nname: User role\ntype: user\ndescription: Senior Python dev\n---\n"
+            "User is a senior Python developer focused on backend systems.\n"
+        )
+
+        store = MemoryStore(db_path=tmp_path / "test.db")
+        ingest_claude_memory(store, base_path=tmp_path / ".claude/projects")
+        results = store.search("senior python developer")
+        assert results
+        assert results[0].memory.scope == "global"
+        assert results[0].memory.type == "user"
 
 
 class TestExtractGeminiProject:
