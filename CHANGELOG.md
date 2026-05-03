@@ -2,6 +2,24 @@
 
 All notable changes to crossmem are documented here.
 
+## [1.9.0] — 2026-05-03
+
+### Added
+
+**Injection transparency — relevance scores in `mem_recall` output**
+
+When `mem_recall` is called with a `query` parameter, each matched memory now shows a normalized relevance score (`[rel: XX%]`) inline. Score is `min(1.0, abs(rank))` — unified across FTS5 BM25 and vector modes:
+- FTS5: rank magnitude maps to 10%–100% (weak vs strong term match)
+- Vector: cosine similarity maps directly to 0%–100%
+
+Unscoped recall (no query) is unchanged — no scores shown when all memories are returned by tier.
+
+**Rank in injection log**
+
+`~/.tokenxray/memory_injections.jsonl` now includes `"rank": float` per memory entry alongside `id`, `keywords`, and `snippet`. Enables `tokenxray --memory-impact` to surface average match quality over time.
+
+---
+
 ## [1.8.0] — 2026-05-03
 
 ### Added

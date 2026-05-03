@@ -492,6 +492,7 @@ def _log_injections(results, cwd: str, project: str | None) -> None:
                     "id": r.memory.id,
                     "keywords": r.memory.section or "",
                     "snippet": r.memory.content.strip()[:500],
+                    "rank": round(r.rank, 4),
                 }
                 for r in results
             ],

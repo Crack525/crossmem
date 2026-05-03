@@ -110,17 +110,18 @@ _SESSION_FOOTER = (
 )
 
 
-def _format_memory_line(mem, cwd: str | None = None) -> list[str]:
+def _format_memory_line(mem, cwd: str | None = None, score: float | None = None) -> list[str]:
     """Format a memory as 1-2 lines for recall output.
 
     Feedback/user memories with how_to_apply get a second line so the
     behavioral instruction is visually distinct and harder to miss.
+    score: normalized relevance 0.0–1.0 (shown when present, e.g. from query-scoped recall).
     """
     section = f" / {mem.section}" if mem.section else ""
     type_tag = f" [{mem.type}]" if getattr(mem, "type", "project") != "project" else ""
-    line = (
-        f"- (id: {mem.id}) {_status(mem, cwd)} **{mem.project}{section}**{type_tag}: {mem.snippet}"
-    )
+    score_tag = f" [rel: {score:.0%}]" if score is not None else ""
+    meta = f"{_status(mem, cwd)} **{mem.project}{section}**{type_tag}{score_tag}"
+    line = f"- (id: {mem.id}) {meta}: {mem.snippet}"
     lines = [line]
     how_to_apply = getattr(mem, "how_to_apply", "")
     if how_to_apply and getattr(mem, "type", "") in ("feedback", "user"):
@@ -410,7 +411,8 @@ def mem_recall(
 
             lines.append(f"## {project} memories (scoped: {query!r}):\n")
             for result in results:
-                lines.extend(_format_memory_line(result.memory, cwd))
+                score = min(1.0, abs(result.rank))
+                lines.extend(_format_memory_line(result.memory, cwd, score=score))
             lines.append("")
 
             if global_mems:
