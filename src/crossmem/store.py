@@ -1080,7 +1080,9 @@ class MemoryStore:
         """Delete memories whose source_file no longer exists on disk. Returns count deleted."""
         import os
 
-        rows = self.db.execute("SELECT id FROM memories WHERE source_file IS NOT NULL").fetchall()
+        rows = self.db.execute(
+            "SELECT id, source_file FROM memories WHERE source_file IS NOT NULL"
+        ).fetchall()
         stale_ids = [row["id"] for row in rows if not os.path.exists(row["source_file"])]
         if not stale_ids:
             return 0
