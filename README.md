@@ -74,6 +74,7 @@ No copy-pasting. No "I already solved this." Your AI remembers — across every 
 | **GitHub Copilot** | Injects memories into copilot-instructions.md | `crossmem install-hook --tool copilot` |
 | **VS Code Agent Mode** | SessionStart + UserPromptSubmit hooks (Preview) | `crossmem install-hook --tool copilot-agent` |
 | **Gemini CLI** | Instruction in GEMINI.md | `crossmem install-instructions` |
+| **Claude Desktop** | MCP server auto-called at session start | Add to `claude_desktop_config.json` |
 
 ## What happens under the hood
 
@@ -131,6 +132,20 @@ Add to your tool's MCP config so AI assistants can search, recall, and save memo
 
 <details>
 <summary><strong>Gemini CLI</strong> (<code>~/.gemini/settings.json</code>)</summary>
+
+```json
+{
+  "mcpServers": {
+    "crossmem": {
+      "command": "crossmem-server"
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>Claude Desktop</strong> (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code>)</summary>
 
 ```json
 {
